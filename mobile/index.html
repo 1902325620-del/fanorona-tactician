@@ -17,6 +17,11 @@
   <body>
     <div id="root"></div>
     <noscript>请启用浏览器 JavaScript 后再使用迂棋参谋。</noscript>
+    <script>
+      if (new URLSearchParams(window.location.search).get("native") === "android") {
+        document.documentElement.classList.add("native-shell");
+      }
+    </script>
     <script type="module" src="./entry.tsx"></script>
   </body>
 </html>

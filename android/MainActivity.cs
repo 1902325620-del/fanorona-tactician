@@ -1,6 +1,7 @@
 using Android.App;
 using Android.Content.PM;
 using Android.OS;
+using Android.Views;
 using Android.Webkit;
 using Color = Android.Graphics.Color;
 
@@ -36,12 +37,22 @@ public sealed class MainActivity : Activity
         webView.Settings.DisplayZoomControls = false;
         webView.Settings.MixedContentMode = MixedContentHandling.NeverAllow;
         webView.Settings.CacheMode = CacheModes.Normal;
+        if (OperatingSystem.IsAndroidVersionAtLeast(30) &&
+            !OperatingSystem.IsAndroidVersionAtLeast(35))
+        {
+            Window?.SetDecorFitsSystemWindows(false);
+        }
+        if (OperatingSystem.IsAndroidVersionAtLeast(30))
+        {
+            webView.SetOnApplyWindowInsetsListener(new SafeAreaInsetsListener());
+        }
         webView.SetWebViewClient(
             new LocalAssetClient(Assets ?? throw new InvalidOperationException("Android assets unavailable")));
         webView.SetWebChromeClient(new WebChromeClient());
 
         SetContentView(webView);
-        webView.LoadUrl("https://app.local/index.html");
+        webView.RequestApplyInsets();
+        webView.LoadUrl("https://app.local/index.html?native=android");
     }
 
     protected override void OnDestroy()
@@ -50,6 +61,19 @@ public sealed class MainActivity : Activity
         webView?.Destroy();
         webView = null;
         base.OnDestroy();
+    }
+}
+
+internal sealed class SafeAreaInsetsListener : Java.Lang.Object, View.IOnApplyWindowInsetsListener
+{
+    public WindowInsets OnApplyWindowInsets(View view, WindowInsets insets)
+    {
+        if (!OperatingSystem.IsAndroidVersionAtLeast(30)) return insets;
+
+        var safeInsets = insets.GetInsets(
+            WindowInsets.Type.SystemBars() | WindowInsets.Type.DisplayCutout());
+        view.SetPadding(safeInsets.Left, safeInsets.Top, safeInsets.Right, safeInsets.Bottom);
+        return WindowInsets.Consumed;
     }
 }
 

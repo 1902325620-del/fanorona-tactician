@@ -4,7 +4,7 @@ import "./globals.css";
 
 const title = "迂棋参谋 | Assassin's Creed Fanorona AI";
 const description =
-  "为《刺客信条 III》迂棋对局设计的本地 AI 棋路助手。录入对手落子，获得我方推荐棋路。";
+  "为《Assassin's Creed Black Flag Resynced》迂棋对局设计的本地 AI 棋路助手。录入对手落子，获得我方推荐棋路。";
 
 export async function generateMetadata(): Promise<Metadata> {
   const requestHeaders = await headers();
@@ -51,6 +51,7 @@ export async function generateMetadata(): Promise<Metadata> {
 export const viewport: Viewport = {
   colorScheme: "light",
   themeColor: "#171a18",
+  viewportFit: "cover",
 };
 
 export default function RootLayout({

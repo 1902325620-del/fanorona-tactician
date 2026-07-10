@@ -1,7 +1,7 @@
 {
   "name": "迂棋参谋",
   "short_name": "迂棋",
-  "description": "录入对手棋路，在手机上离线计算 Fanorona 推荐走法。",
+  "description": "面向《Assassin's Creed Black Flag Resynced》的离线 Fanorona 棋路助手。",
   "lang": "zh-CN",
   "id": "./",
   "start_url": "./",

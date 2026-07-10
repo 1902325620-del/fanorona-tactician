@@ -29,6 +29,7 @@ import {
   type Step,
   type TurnMove,
 } from "../lib/fanorona";
+import { pieceToneFor } from "../lib/presentation";
 
 type Phase = "opponent" | "thinking" | "recommendation" | "edit" | "gameover";
 type Brush = -1 | 0 | 1;
@@ -201,7 +202,8 @@ function compactNumber(value: number) {
 }
 
 interface BoardProps {
-  board: number[];
+  board: Cell[];
+  firstPlayer: -1 | 1;
   selected: number | null;
   targets: Set<number>;
   route: Step[];
@@ -213,6 +215,7 @@ interface BoardProps {
 
 function FanoronaBoard({
   board,
+  firstPlayer,
   selected,
   targets,
   route,
@@ -367,16 +370,17 @@ function FanoronaBoard({
         if (piece === 0 || previewSet.has(index)) return null;
         const point = pointFor(index);
         const side = piece === -1 ? "opponent" : "self";
+        const tone = pieceToneFor(piece, firstPlayer);
         return (
           <g key={`piece-${index}`}>
             <circle
-              className={`board-piece ${side}`}
+              className={`board-piece ${side} ${tone}`}
               cx={point.x}
               cy={point.y}
               r={25}
             />
             <circle
-              className={`piece-center ${side}`}
+              className={`piece-center ${tone}`}
               cx={point.x}
               cy={point.y}
               r={7}
@@ -922,7 +926,7 @@ export function FanoronaAssistant({ createWorker }: FanoronaAssistantProps) {
         <section className="board-column" aria-label="对局棋盘">
           <div className="board-toolbar">
             <div className="player-label">
-              <span className="piece-swatch opponent" />
+              <span className={`piece-swatch opponent ${pieceToneFor(-1, firstTurn)}`} />
               对手
               <span className="count-pill">{counts.opponent}</span>
             </div>
@@ -941,13 +945,14 @@ export function FanoronaAssistant({ createWorker }: FanoronaAssistantProps) {
             <div className="player-label">
               <span className="count-pill">{counts.self}</span>
               我方
-              <span className="piece-swatch self" />
+              <span className={`piece-swatch self ${pieceToneFor(1, firstTurn)}`} />
             </div>
           </div>
 
           <div className="board-frame">
             <FanoronaBoard
               board={displayBoard}
+              firstPlayer={firstTurn}
               selected={phase === "edit" ? null : selectedFrom}
               targets={phase === "edit" ? new Set<number>() : targetIndices}
               route={boardRoute}
@@ -1171,7 +1176,7 @@ export function FanoronaAssistant({ createWorker }: FanoronaAssistantProps) {
                     className={`brush-button${brush === -1 ? " active" : ""}`}
                     onClick={() => setBrush(-1)}
                   >
-                    <span className="piece-swatch opponent" /> 对手
+                    <span className={`piece-swatch opponent ${pieceToneFor(-1, firstTurn)}`} /> 对手
                   </button>
                   <button
                     type="button"
@@ -1185,7 +1190,7 @@ export function FanoronaAssistant({ createWorker }: FanoronaAssistantProps) {
                     className={`brush-button${brush === 1 ? " active" : ""}`}
                     onClick={() => setBrush(1)}
                   >
-                    <span className="piece-swatch self" /> 我方
+                    <span className={`piece-swatch self ${pieceToneFor(1, firstTurn)}`} /> 我方
                   </button>
                 </div>
                 <label className="field-label" style={{ marginTop: 14 }}>

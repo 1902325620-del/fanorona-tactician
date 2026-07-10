@@ -18,6 +18,8 @@ test("mobile PWA has an installable offline shell", async () => {
   assert.equal(manifest.display, "standalone");
   assert.equal(manifest.start_url, "./");
   assert.match(html, /rel="manifest" href="\.\/manifest\.webmanifest"/);
+  assert.match(html, /viewport-fit=cover/);
+  assert.match(html, /native-shell/);
   assert.match(serviceWorker, /PRECACHE\.push\("\.\/assets\/index-[^"]+\.js"/);
 
   const assetPaths = [
@@ -26,9 +28,26 @@ test("mobile PWA has an installable offline shell", async () => {
   assert.ok(assetPaths.length >= 2);
   await Promise.all(assetPaths.map((path) => access(resolve(mobileDir, path))));
 
+  const stylePath = assetPaths.find((path) => path.endsWith(".css"));
+  assert.ok(stylePath);
+  const styles = await readFile(resolve(mobileDir, stylePath), "utf8");
+  assert.match(styles, /safe-area-inset-top/);
+  assert.match(styles, /safe-area-inset-bottom/);
+
   for (const icon of manifest.icons) {
     await access(resolve(mobileDir, icon.src.replace(/^\.\//, "")));
   }
+});
+
+test("Android shell applies system bar and display cutout insets", async () => {
+  const activity = await readFile(
+    resolve(projectDir, "android", "MainActivity.cs"),
+    "utf8",
+  );
+  assert.match(activity, /WindowInsets\.Type\.SystemBars\(\)/);
+  assert.match(activity, /WindowInsets\.Type\.DisplayCutout\(\)/);
+  assert.match(activity, /SetPadding\(safeInsets\.Left, safeInsets\.Top, safeInsets\.Right, safeInsets\.Bottom\)/);
+  assert.match(activity, /index\.html\?native=android/);
 });
 
 test("mobile icons have the declared PNG dimensions", async () => {

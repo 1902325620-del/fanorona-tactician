@@ -69,3 +69,5 @@ pnpm build:apk
 ## 开源协议
 
 [MIT](./LICENSE)
+
+版本维护记录见 [CHANGELOG.md](./CHANGELOG.md)。

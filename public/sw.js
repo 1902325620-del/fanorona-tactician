@@ -1,4 +1,4 @@
-const CACHE_NAME = "fanorona-tactician-v2";
+const CACHE_NAME = "fanorona-tactician-v3";
 const PRECACHE = [
   "./",
   "./manifest.webmanifest",
