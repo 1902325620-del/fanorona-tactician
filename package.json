@@ -1,0 +1,46 @@
+{
+  "name": "fanorona-tactician",
+  "version": "0.1.0",
+  "private": true,
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "scripts": {
+    "dev": "vinext dev",
+    "build": "vinext build",
+    "build:portable": "vite build --config portable/vite.config.ts && node portable/package.mjs",
+    "build:mobile": "pnpm run build:portable && vite build --config mobile/vite.config.ts && node mobile/package.mjs",
+    "build:launcher": "pnpm run build:mobile && node launcher/prepare.mjs && dotnet publish launcher/FanoronaLauncher.csproj -c Release -r win-x64 --self-contained true -o work/launcher-publish && node launcher/finalize.mjs",
+    "build:apk": "pnpm run build:mobile && node android/prepare.mjs && node android/build.mjs && node android/finalize.mjs",
+    "start": "vinext start",
+    "test": "pnpm run build && node --test tests/rendered-html.test.mjs && tsx --test tests/fanorona.test.ts",
+    "test:mobile": "pnpm run build:mobile && node --test tests/mobile-package.test.mjs",
+    "lint": "eslint . --ignore-pattern dist --ignore-pattern .next --ignore-pattern work --ignore-pattern outputs"
+  },
+  "dependencies": {
+    "lucide-react": "^1.23.0",
+    "next": "16.2.6",
+    "react": "19.2.6",
+    "react-dom": "19.2.6"
+  },
+  "devDependencies": {
+    "@cloudflare/vite-plugin": "1.37.1",
+    "@cloudflare/workers-types": "^5.20260708.1",
+    "@tailwindcss/postcss": "4.2.1",
+    "@types/node": "22.19.19",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
+    "@vitejs/plugin-react": "6.0.2",
+    "@vitejs/plugin-rsc": "0.5.26",
+    "eslint": "9.39.4",
+    "eslint-config-next": "16.2.6",
+    "react-server-dom-webpack": "19.2.6",
+    "tailwindcss": "4.2.1",
+    "tsx": "^4.23.0",
+    "typescript": "5.9.3",
+    "vinext": "0.0.50",
+    "vite": "8.0.13",
+    "wrangler": "4.92.0"
+  },
+  "type": "module"
+}
