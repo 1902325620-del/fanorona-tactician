@@ -2,6 +2,19 @@
 
 一个面向 2026 年 7 月 9 日发售的《Assassin's Creed Black Flag Resynced》（《刺客信条 IV：黑旗》重制版）迂棋（Fanorona）小游戏的本地棋路助手。棋盘固定为对手在上、我方在下；录入对手完整回合后，本地 Web Worker 会计算并标出我方推荐棋路。
 
+## 直接下载：打包好的离线版本
+
+不想配置开发环境时，直接下载对应平台的成品。两个版本都已内置界面、规则和搜索引擎，运行时不需要联网、不调用 AI 接口，也不消耗 Token。
+
+| 平台 | 成品下载 | 运行要求 |
+| --- | --- | --- |
+| Windows | [下载 Windows x64 便携版 EXE](https://github.com/1902325620-del/fanorona-tactician/releases/latest/download/fanorona-tactician-windows-x64.exe) | Windows 10/11 64 位；双击运行，无需安装 Node.js 或 .NET |
+| Android | [下载 Android 64 位 APK](https://github.com/1902325620-del/fanorona-tactician/releases/latest/download/fanorona-tactician-android-arm64.apk) | Android 7.0 以上；安装时允许当前应用“安装未知应用” |
+
+[查看全部版本与校验值](https://github.com/1902325620-del/fanorona-tactician/releases/latest)
+
+这些文件由本仓库源码直接构建，暂未使用商业代码签名证书，因此 Windows SmartScreen 或安卓系统可能显示来源提示。
+
 重制版采用的迂棋规则与传统 9×5 Fanorona 规则一致，因此本项目也可用于原版《刺客信条 IV：黑旗》及其他采用相同规则的游戏。
 
 本项目从零实现界面、规则引擎和搜索算法，不包含《刺客信条》或 Ubisoft 的游戏文件、美术资源及代码，也与 Ubisoft 没有隶属或授权关系。
