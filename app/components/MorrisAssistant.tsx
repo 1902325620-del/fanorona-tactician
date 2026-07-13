@@ -57,9 +57,11 @@ interface MorrisAssistantProps extends AssistantNavigationProps {
 }
 
 const STRENGTHS = {
-  quick: { labelKey: "common.quick" as const, timeMs: 2_000, maxDepth: 5 },
-  strong: { labelKey: "common.strong" as const, timeMs: 8_000, maxDepth: 7 },
-  revenge: { labelKey: "common.revenge" as const, timeMs: 20_000, maxDepth: 9 },
+  // Morris branching varies enormously by phase, so time rather than a low
+  // fixed ply cap should determine the completed iterative-deepening depth.
+  quick: { labelKey: "common.quick" as const, timeMs: 2_000, maxDepth: 32 },
+  strong: { labelKey: "common.strong" as const, timeMs: 8_000, maxDepth: 32 },
+  revenge: { labelKey: "common.revenge" as const, timeMs: 20_000, maxDepth: 32 },
 };
 
 const MORRIS_EDGES = ADJACENCY.flatMap((targets, from) =>
@@ -471,10 +473,16 @@ export function MorrisAssistant({
       type: "search",
       id,
       position,
-      options: { timeMs: preset.timeMs, maxDepth: preset.maxDepth, topN: 3 },
+      options: {
+        timeMs: preset.timeMs,
+        maxDepth: preset.maxDepth,
+        topN: 3,
+        history: history.map((entry) => entry.before),
+        drawScore: -1,
+      },
     });
     return () => worker.postMessage({ type: "cancel", id });
-  }, [active, locale, phase, position, strength]);
+  }, [active, history, locale, phase, position, strength]);
 
   const turnText = pendingRemovalMoves
     ? t(locale, "morris.chooseRemovalShort")

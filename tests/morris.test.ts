@@ -1,13 +1,17 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  ADJACENCY,
   EMPTY,
+  MILLS,
+  MORRIS_AUTOMORPHISMS,
   OPPONENT,
   SELF,
   algebraicToIndex,
   applyMove,
   countMills,
   createInitialPosition,
+  evaluatePosition,
   generateLegalMoves,
   getGameStatus,
   getPhase,
@@ -34,6 +38,36 @@ test("standard board exposes stable Morris coordinates", () => {
   assert.equal(indexToAlgebraic(23), "g1");
   assert.equal(algebraicToIndex("D5"), 7);
   assert.throws(() => algebraicToIndex("d4"), RangeError);
+});
+
+test("all sixteen board automorphisms preserve edges and mills", () => {
+  assert.equal(MORRIS_AUTOMORPHISMS.length, 16);
+  assert.equal(
+    new Set(MORRIS_AUTOMORPHISMS.map((mapping) => mapping.join(","))).size,
+    16,
+  );
+  const millKeys = new Set(
+    MILLS.map((mill) => [...mill].sort((a, b) => a - b).join(",")),
+  );
+
+  for (const mapping of MORRIS_AUTOMORPHISMS) {
+    assert.deepEqual(
+      [...mapping].sort((a, b) => a - b),
+      Array.from({ length: 24 }, (_, index) => index),
+    );
+    for (let from = 0; from < ADJACENCY.length; from += 1) {
+      for (const to of ADJACENCY[from]) {
+        assert.ok(ADJACENCY[mapping[from]].includes(mapping[to]));
+      }
+    }
+    for (const mill of MILLS) {
+      const transformed = mill
+        .map((point) => mapping[point])
+        .sort((a, b) => a - b)
+        .join(",");
+      assert.ok(millKeys.has(transformed));
+    }
+  }
 });
 
 test("initial position contains two reserves of nine and 24 placements", () => {
@@ -314,4 +348,172 @@ test("cooperative cancellation returns a legal fallback without mutating state",
   assert.ok(result.bestMove);
   assert.equal(result.completed, false);
   assert.equal(JSON.stringify(position), snapshot);
+});
+
+test("the flying-mobility regression position no longer rewards losing a piece", () => {
+  const fourPieces = positionWith([
+    ["b2", SELF],
+    ["g1", SELF],
+    ["g4", SELF],
+    ["g7", SELF],
+    ["a1", OPPONENT],
+    ["d1", OPPONENT],
+    ["d7", OPPONENT],
+    ["f4", OPPONENT],
+  ]);
+  const threePieces = positionWith([
+    ["g1", SELF],
+    ["g4", SELF],
+    ["g7", SELF],
+    ["a1", OPPONENT],
+    ["d1", OPPONENT],
+    ["d7", OPPONENT],
+    ["f4", OPPONENT],
+  ]);
+
+  assert.ok(
+    evaluatePosition(threePieces, SELF) < evaluatePosition(fourPieces, SELF),
+  );
+});
+
+test("search defends the verified second-player placement tactic", () => {
+  const position = positionWith(
+    [
+      ["d7", SELF],
+      ["b6", SELF],
+      ["e5", SELF],
+      ["b4", SELF],
+      ["f4", SELF],
+      ["b2", SELF],
+      ["g7", OPPONENT],
+      ["e4", OPPONENT],
+      ["g4", OPPONENT],
+      ["e3", OPPONENT],
+      ["d2", OPPONENT],
+      ["a1", OPPONENT],
+      ["d1", OPPONENT],
+      ["g1", OPPONENT],
+    ],
+    SELF,
+    1,
+    0,
+  );
+  const result = searchBestMoves(position, {
+    timeMs: 1_000,
+    maxDepth: 5,
+    topN: 1,
+  });
+
+  assert.equal(result.depth, 5);
+  assert.equal(result.bestMove?.notation, "@d6");
+});
+
+test("evaluation and search remain neutral when player colors are swapped", () => {
+  const original = positionWith(
+    [
+      ["a7", SELF],
+      ["d6", SELF],
+      ["c4", SELF],
+      ["g1", OPPONENT],
+      ["f4", OPPONENT],
+      ["d2", OPPONENT],
+    ],
+    SELF,
+    3,
+    3,
+  );
+  const swapped: MorrisPosition = {
+    board: original.board.map((cell) =>
+      cell === SELF ? OPPONENT : cell === OPPONENT ? SELF : EMPTY,
+    ),
+    turn: OPPONENT,
+    selfToPlace: original.opponentToPlace,
+    opponentToPlace: original.selfToPlace,
+  };
+
+  assert.equal(
+    evaluatePosition(original, SELF),
+    evaluatePosition(swapped, OPPONENT),
+  );
+  const originalSearch = searchBestMoves(original, {
+    timeMs: 1_000,
+    maxDepth: 3,
+    topN: 1,
+  });
+  const swappedSearch = searchBestMoves(swapped, {
+    timeMs: 1_000,
+    maxDepth: 3,
+    topN: 1,
+  });
+  assert.equal(originalSearch.score, swappedSearch.score);
+  assert.equal(originalSearch.bestMove?.notation, swappedSearch.bestMove?.notation);
+});
+
+test("real-game history lets search avoid a third occurrence when alternatives exist", () => {
+  const position = positionWith([
+    ["a7", SELF],
+    ["d6", SELF],
+    ["c4", SELF],
+    ["g1", SELF],
+    ["g7", OPPONENT],
+    ["b6", OPPONENT],
+    ["e4", OPPONENT],
+    ["d1", OPPONENT],
+  ]);
+  const baseline = searchBestMoves(position, {
+    timeMs: 1_000,
+    maxDepth: 1,
+    topN: 1,
+    tacticalDepth: 0,
+  });
+  assert.ok(baseline.bestMove);
+  const repeatedChild = applyMove(position, baseline.bestMove);
+  const withHistory = searchBestMoves(position, {
+    timeMs: 1_000,
+    maxDepth: 1,
+    topN: 1,
+    tacticalDepth: 0,
+    history: [repeatedChild, repeatedChild],
+    drawScore: -10_000,
+  });
+
+  assert.ok(withHistory.bestMove);
+  assert.notEqual(withHistory.bestMove.id, baseline.bestMove.id);
+});
+
+test("transposition entries keep direction-specific repetition history separate", () => {
+  const position = positionWith([
+    ["a7", SELF],
+    ["g7", SELF],
+    ["a1", SELF],
+    ["g1", SELF],
+    ["b6", OPPONENT],
+    ["f6", OPPONENT],
+    ["b2", OPPONENT],
+    ["f2", OPPONENT],
+  ]);
+  const first = generateLegalMoves(position).find(
+    (move) => move.notation === "a7-a4",
+  );
+  assert.ok(first);
+  const afterFirst = applyMove(position, first);
+  const second = generateLegalMoves(afterFirst).find(
+    (move) => move.notation === "f6-d6",
+  );
+  assert.ok(second);
+  const repeated = applyMove(afterFirst, second);
+  const result = searchBestMoves(position, {
+    timeMs: 2_000,
+    maxDepth: 2,
+    topN: 100,
+    tacticalDepth: 0,
+    history: [repeated, repeated],
+    drawScore: -10_000,
+  });
+  const repeatedLine = result.topMoves.find(
+    (line) => line.move.notation === "a7-a4",
+  );
+
+  assert.equal(repeatedLine?.score, -10_000);
+  assert.notEqual(result.bestMove?.notation, "a7-a4");
 });

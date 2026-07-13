@@ -73,6 +73,12 @@ export interface SearchOptions {
   readonly topN?: number;
   /** Maximum transposition-table entries retained by this search. */
   readonly maxTableEntries?: number;
+  /** Mill-forming continuations searched after the regular horizon. Defaults to 2. */
+  readonly tacticalDepth?: number;
+  /** Earlier real-game positions used to recognize a third occurrence. */
+  readonly history?: readonly MorrisPosition[];
+  /** Utility of a repeated draw from the root side's perspective. Defaults to 0. */
+  readonly drawScore?: number;
   /** Cooperative stop hook for workers and direct callers. */
   readonly shouldStop?: () => boolean;
 }
@@ -186,6 +192,40 @@ const MILLS_BY_POINT: readonly (readonly number[])[] = Array.from(
 const LABEL_TO_INDEX = new Map(
   MORRIS_POINTS.map((point) => [point.label, point.index]),
 );
+
+const POINT_INDEX_BY_COORDINATE = new Map(
+  MORRIS_POINTS.map((point) => [`${point.row},${point.col}`, point.index]),
+);
+
+// The board has the eight square symmetries plus an automorphism that swaps
+// the inner and outer rings. Canonicalizing all sixteen greatly improves the
+// placement-phase transposition hit rate.
+export const MORRIS_AUTOMORPHISMS: readonly (readonly number[])[] = [false, true].flatMap(
+  (swapRings) =>
+    [false, true].flatMap((reflect) =>
+      [0, 1, 2, 3].map((turns) =>
+        MORRIS_POINTS.map((point) => {
+          let row = point.row;
+          let col = point.col;
+          if (swapRings) {
+            const radius = Math.max(Math.abs(row - 3), Math.abs(col - 3));
+            const swappedRadius = radius === 3 ? 1 : radius === 1 ? 3 : radius;
+            row = 3 + Math.sign(row - 3) * swappedRadius;
+            col = 3 + Math.sign(col - 3) * swappedRadius;
+          }
+          if (reflect) col = 6 - col;
+          for (let turn = 0; turn < turns; turn += 1) {
+            [row, col] = [col, 6 - row];
+          }
+          const transformed = POINT_INDEX_BY_COORDINATE.get(`${row},${col}`);
+          if (transformed === undefined) {
+            throw new Error(`Invalid Morris board automorphism: ${row},${col}`);
+          }
+          return transformed;
+        }),
+      ),
+    ),
+) as readonly (readonly number[])[];
 
 export function otherPlayer(player: Player): Player {
   return player === SELF ? OPPONENT : SELF;
@@ -497,29 +537,148 @@ export function evaluatePosition(
   const enemy = otherPlayer(perspective);
   const ownTotal =
     countPieces(position, perspective) + getPiecesToPlace(position, perspective);
-  const enemyTotal = countPieces(position, enemy) + getPiecesToPlace(position, enemy);
-  let score = (ownTotal - enemyTotal) * 120;
-  score += (countMills(position, perspective) - countMills(position, enemy)) * 34;
-  score +=
-    (countOpenMills(position.board, perspective) -
-      countOpenMills(position.board, enemy)) *
-    22;
-  score +=
-    (countForks(position.board, perspective) -
-      countForks(position.board, enemy)) *
-    14;
+  const enemyTotal =
+    countPieces(position, enemy) + getPiecesToPlace(position, enemy);
+  const ownPhase = getPhase(position, perspective);
+  const enemyPhase = getPhase(position, enemy);
+  const placing = position.selfToPlace > 0 || position.opponentToPlace > 0;
+  const ownMillActions = countMillActions(position, perspective);
+  const enemyMillActions = countMillActions(position, enemy);
+  const materialWeight = placing ? 132 : 168;
+  let score = (ownTotal - enemyTotal) * materialWeight;
 
-  if (position.selfToPlace === 0 && position.opponentToPlace === 0) {
+  const ownMillWeight =
+    ownPhase === "placing" ? 18 : ownPhase === "flying" ? 16 : 38;
+  const enemyMillWeight =
+    enemyPhase === "placing" ? 18 : enemyPhase === "flying" ? 16 : 38;
+  score +=
+    countMills(position, perspective) * ownMillWeight -
+    countMills(position, enemy) * enemyMillWeight;
+  score +=
+    (Math.min(ownMillActions.actions, 4) -
+      Math.min(enemyMillActions.actions, 4)) *
+    (placing ? 34 : 28);
+  score +=
+    (Math.max(0, ownMillActions.targets - 1) -
+      Math.max(0, enemyMillActions.targets - 1)) *
+    (placing ? 64 : 48);
+
+  // A threat that can be executed immediately is worth more than the same
+  // shape one tempo later. This is especially important when defending as the
+  // second player during placement.
+  score +=
+    position.turn === perspective
+      ? Math.min(ownMillActions.actions, 3) * 12
+      : -Math.min(enemyMillActions.actions, 3) * 12;
+
+  if (placing) {
+    const ownOpenMills =
+      ownPhase === "placing" ? countOpenMills(position.board, perspective) : 0;
+    const enemyOpenMills =
+      enemyPhase === "placing" ? countOpenMills(position.board, enemy) : 0;
+    const ownForks =
+      ownPhase === "placing" ? countForks(position.board, perspective) : 0;
+    const enemyForks =
+      enemyPhase === "placing" ? countForks(position.board, enemy) : 0;
+    score += (ownOpenMills - enemyOpenMills) * 10;
+    score += (ownForks - enemyForks) * 16;
     score +=
-      (countDestinations(position, perspective) -
-        countDestinations(position, enemy)) *
+      (countConnectionValue(position.board, perspective) -
+        countConnectionValue(position.board, enemy)) *
       3;
+  } else {
+    score +=
+      (normalizedMobility(position, perspective) -
+        normalizedMobility(position, enemy)) *
+      4;
     score +=
       (countBlockedPieces(position, enemy) -
         countBlockedPieces(position, perspective)) *
-      8;
+      11;
   }
   return score;
+}
+
+interface MillActionStats {
+  readonly actions: number;
+  readonly targets: number;
+}
+
+/** Counts mills that can actually be closed in one legal action. */
+function countMillActions(
+  position: MorrisPosition,
+  player: Player,
+): MillActionStats {
+  const board = position.board;
+  const phase = getPhase(position, player);
+  const targets = new Set<number>();
+  let actions = 0;
+
+  if (phase === "placing") {
+    for (let to = 0; to < MORRIS_BOARD_SIZE; to += 1) {
+      if (
+        board[to] === EMPTY &&
+        baseActionFormsMill(board, player, null, to)
+      ) {
+        actions += 1;
+        targets.add(to);
+      }
+    }
+    return { actions, targets: targets.size };
+  }
+
+  const pieces = countPieces(position, player);
+  if (pieces < 3) return { actions: 0, targets: 0 };
+  const canFly = pieces === 3;
+  for (let from = 0; from < MORRIS_BOARD_SIZE; from += 1) {
+    if (board[from] !== player) continue;
+    if (canFly) {
+      for (let to = 0; to < MORRIS_BOARD_SIZE; to += 1) {
+        if (
+          board[to] === EMPTY &&
+          baseActionFormsMill(board, player, from, to)
+        ) {
+          actions += 1;
+          targets.add(to);
+        }
+      }
+    } else {
+      for (const to of ADJACENCY[from]) {
+        if (
+          board[to] === EMPTY &&
+          baseActionFormsMill(board, player, from, to)
+        ) {
+          actions += 1;
+          targets.add(to);
+        }
+      }
+    }
+  }
+  return { actions, targets: targets.size };
+}
+
+function baseActionFormsMill(
+  board: readonly MorrisCell[],
+  player: Player,
+  from: number | null,
+  to: number,
+): boolean {
+  return MILLS_BY_POINT[to].some((millIndex) =>
+    MILLS[millIndex].every(
+      (point) => point === to || (point !== from && board[point] === player),
+    ),
+  );
+}
+
+function countConnectionValue(
+  board: readonly MorrisCell[],
+  player: Player,
+): number {
+  let value = 0;
+  for (let point = 0; point < MORRIS_BOARD_SIZE; point += 1) {
+    if (board[point] === player) value += ADJACENCY[point].length - 2;
+  }
+  return value;
 }
 
 function countOpenMills(board: readonly MorrisCell[], player: Player): number {
@@ -552,16 +711,19 @@ function countForks(board: readonly MorrisCell[], player: Player): number {
   return count;
 }
 
-function countDestinations(position: MorrisPosition, player: Player): number {
+function normalizedMobility(position: MorrisPosition, player: Player): number {
   const pieces = countPieces(position, player);
-  const empties = MORRIS_BOARD_SIZE - countPieces(position, SELF) - countPieces(position, OPPONENT);
-  if (pieces === 3) return pieces * empties;
+  const enemyPieces = countPieces(position, otherPlayer(player));
+  const empties = MORRIS_BOARD_SIZE - pieces - enemyPieces;
+  // Flying makes every empty point reachable, but counting every piece-target
+  // pair would make losing a fourth piece look like a large positional gain.
+  if (pieces === 3) return Math.min(24, empties);
   let count = 0;
   for (let point = 0; point < MORRIS_BOARD_SIZE; point += 1) {
     if (position.board[point] !== player) continue;
     count += ADJACENCY[point].filter((to) => position.board[to] === EMPTY).length;
   }
-  return count;
+  return Math.min(24, count);
 }
 
 function countBlockedPieces(position: MorrisPosition, player: Player): number {
@@ -590,18 +752,30 @@ interface TableEntry {
   readonly bestMoveId: string | null;
 }
 
+type TableKey = number | string;
+
 interface SearchContext {
   readonly startedAt: number;
   readonly deadline: number;
   readonly shouldStop: () => boolean;
-  readonly table: Map<string, TableEntry>;
+  readonly table: Map<TableKey, TableEntry>;
+  readonly evaluations: Map<number, number>;
+  readonly repetitions: Map<number, number>;
+  readonly moveHistory: Map<string, number>;
+  readonly killers: Map<number, readonly string[]>;
+  readonly rootPlayer: Player;
+  readonly drawScore: number;
   readonly maxTableEntries: number;
+  readonly tacticalDepth: number;
+  repetitionSignatureA: number;
+  repetitionSignatureB: number;
   nodes: number;
 }
 
 interface NodeResult {
   readonly score: number;
   readonly pv: MorrisMove[];
+  readonly pathDependent: boolean;
 }
 
 class SearchStopped extends Error {}
@@ -617,12 +791,23 @@ export function searchBestMoves(
   const maxDepth = Math.max(1, Math.floor(options.maxDepth ?? 8));
   const topN = Math.max(1, Math.floor(options.topN ?? 3));
   const startedAt = now();
+  const repetitions = repetitionCounts(options.history ?? []);
+  const repetitionSignature = makeRepetitionSignature(repetitions);
   const context: SearchContext = {
     startedAt,
     deadline: startedAt + timeMs,
     shouldStop: options.shouldStop ?? (() => false),
     table: new Map(),
+    evaluations: new Map(),
+    repetitions,
+    moveHistory: new Map(),
+    killers: new Map(),
+    rootPlayer: position.turn,
+    drawScore: Math.trunc(options.drawScore ?? 0),
     maxTableEntries: Math.max(1000, options.maxTableEntries ?? 120_000),
+    tacticalDepth: Math.max(0, Math.floor(options.tacticalDepth ?? 2)),
+    repetitionSignatureA: repetitionSignature[0],
+    repetitionSignatureB: repetitionSignature[1],
     nodes: 0,
   };
 
@@ -651,7 +836,7 @@ export function searchBestMoves(
   for (let depth = 1; depth <= maxDepth; depth += 1) {
     try {
       checkStopped(context, true);
-      const lines = searchRoot(position, legal, depth, context);
+      const lines = searchRoot(position, legal, depth, topN, context);
       completedDepth = depth;
       completedLines = lines.slice(0, topN);
       const progress = makeProgress(
@@ -681,18 +866,46 @@ function searchRoot(
   position: MorrisPosition,
   legal: readonly MorrisMove[],
   depth: number,
+  topN: number,
   context: SearchContext,
 ): SearchLine[] {
-  const rootKey = hashPosition(position);
+  const rootKey = transpositionKey(position, context);
   const preferred = context.table.get(rootKey)?.bestMoveId ?? null;
-  const ordered = orderMoves(legal, preferred);
+  const ordered = orderMoves(legal, preferred, context, 0);
   const lines: SearchLine[] = [];
+  const rootPathKey = repetitionKey(position);
 
-  for (const move of ordered) {
-    checkStopped(context, true);
-    const child = applyGeneratedMove(position, move);
-    const result = negamax(child, depth - 1, -INF, INF, context, 1);
-    lines.push({ move, score: -result.score, pv: [move, ...result.pv] });
+  pushRepetition(context, rootPathKey);
+  try {
+    for (const move of ordered) {
+      checkStopped(context, true);
+      let line: SearchLine;
+      if (lines.length < topN) {
+        line = searchRootMove(position, move, depth, -INF, INF, context);
+      } else {
+        lines.sort(compareSearchLines);
+        const worst = lines[Math.min(topN, lines.length) - 1];
+        const threshold = worst.score;
+        const probe = searchRootMove(
+          position,
+          move,
+          depth,
+          threshold,
+          threshold + 1,
+          context,
+        );
+        const improvesTie = move.id.localeCompare(worst.move.id) < 0;
+        if (probe.score < threshold || (probe.score === threshold && !improvesTie)) {
+          continue;
+        }
+        line = searchRootMove(position, move, depth, -INF, INF, context);
+      }
+      lines.push(line);
+      lines.sort(compareSearchLines);
+      if (lines.length > topN) lines.length = topN;
+    }
+  } finally {
+    popRepetition(context, rootPathKey);
   }
 
   lines.sort(compareSearchLines);
@@ -705,6 +918,26 @@ function searchRoot(
     });
   }
   return lines;
+}
+
+function searchRootMove(
+  position: MorrisPosition,
+  move: MorrisMove,
+  depth: number,
+  alpha: number,
+  beta: number,
+  context: SearchContext,
+): SearchLine {
+  const child = applyGeneratedMove(position, move);
+  const result = negamax(
+    child,
+    depth - 1,
+    -beta,
+    -alpha,
+    context,
+    1,
+  );
+  return { move, score: -result.score, pv: [move, ...result.pv] };
 }
 
 function negamax(
@@ -725,76 +958,286 @@ function negamax(
       status.winner === position.turn
         ? MATE_SCORE - distanceFromRoot
         : -MATE_SCORE + distanceFromRoot;
-    return { score, pv: [] };
+    return { score, pv: [], pathDependent: false };
+  }
+  const pathKey = repetitionKey(position);
+  if ((context.repetitions.get(pathKey) ?? 0) >= 2) {
+    return {
+      score:
+        position.turn === context.rootPlayer
+          ? context.drawScore
+          : -context.drawScore,
+      pv: [],
+      pathDependent: true,
+    };
   }
   if (depth <= 0) {
-    return { score: evaluatePosition(position, position.turn), pv: [] };
+    return tacticalSearch(
+      position,
+      alphaInput,
+      beta,
+      context,
+      distanceFromRoot,
+      context.tacticalDepth,
+      false,
+    );
   }
 
-  const key = hashPosition(position);
+  const key = transpositionKey(position, context);
   const entry = context.table.get(key);
   let alpha = alphaInput;
-  if (entry && entry.depth >= depth) {
-    if (entry.bound === "exact") return { score: entry.score, pv: [] };
-    if (entry.bound === "lower") alpha = Math.max(alpha, entry.score);
-    else beta = Math.min(beta, entry.score);
-    if (alpha >= beta) return { score: entry.score, pv: [] };
+  if (entry && entry.depth === depth) {
+    const tableScore = scoreFromTable(entry.score, distanceFromRoot);
+    if (entry.bound === "exact") {
+      return {
+        score: tableScore,
+        pv: [],
+        pathDependent: false,
+      };
+    }
+    if (entry.bound === "lower") alpha = Math.max(alpha, tableScore);
+    else beta = Math.min(beta, tableScore);
+    if (alpha >= beta) {
+      return {
+        score: tableScore,
+        pv: [],
+        pathDependent: false,
+      };
+    }
   }
 
   const alphaOriginal = alpha;
-  const moves = orderMoves(generateLegalMoves(position), entry?.bestMoveId ?? null);
+  const betaOriginal = beta;
+  const moves = orderMoves(
+    generateLegalMoves(position),
+    entry?.bestMoveId ?? null,
+    context,
+    distanceFromRoot,
+  );
   let bestScore = -INF;
   let bestMove: MorrisMove | null = null;
   let bestPv: MorrisMove[] = [];
+  let pathDependent = false;
+  let firstMove = true;
 
-  for (const move of moves) {
-    const child = applyGeneratedMove(position, move);
-    const result = negamax(
-      child,
-      depth - 1,
-      -beta,
-      -alpha,
-      context,
-      distanceFromRoot + 1,
-    );
-    const score = -result.score;
-    if (score > bestScore) {
-      bestScore = score;
-      bestMove = move;
-      bestPv = [move, ...result.pv];
+  pushRepetition(context, pathKey);
+  try {
+    for (const move of moves) {
+      const child = applyGeneratedMove(position, move);
+      let result: NodeResult;
+      if (firstMove) {
+        result = negamax(
+          child,
+          depth - 1,
+          -beta,
+          -alpha,
+          context,
+          distanceFromRoot + 1,
+        );
+      } else {
+        result = negamax(
+          child,
+          depth - 1,
+          -alpha - 1,
+          -alpha,
+          context,
+          distanceFromRoot + 1,
+        );
+        const probeScore = -result.score;
+        if (probeScore > alpha && probeScore < beta) {
+          const fullResult = negamax(
+            child,
+            depth - 1,
+            -beta,
+            -alpha,
+            context,
+            distanceFromRoot + 1,
+          );
+          pathDependent = pathDependent || result.pathDependent;
+          result = fullResult;
+        }
+      }
+      firstMove = false;
+      pathDependent = pathDependent || result.pathDependent;
+      const score = -result.score;
+      if (score > bestScore) {
+        bestScore = score;
+        bestMove = move;
+        bestPv = [move, ...result.pv];
+      }
+      alpha = Math.max(alpha, score);
+      if (alpha >= beta) {
+        recordCutoff(context, move, depth, distanceFromRoot);
+        break;
+      }
     }
-    alpha = Math.max(alpha, score);
-    if (alpha >= beta) break;
+  } finally {
+    popRepetition(context, pathKey);
   }
 
   const bound: Bound =
     bestScore <= alphaOriginal
       ? "upper"
-      : bestScore >= beta
+      : bestScore >= betaOriginal
         ? "lower"
         : "exact";
-  storeTable(context, key, {
-    depth,
+  if (!pathDependent) {
+    storeTable(context, key, {
+      depth,
+      score: scoreToTable(bestScore, distanceFromRoot),
+      bound,
+      bestMoveId: bestMove?.id ?? null,
+    });
+  }
+  return {
     score: bestScore,
-    bound,
-    bestMoveId: bestMove?.id ?? null,
-  });
-  return { score: bestScore, pv: bestPv };
+    pv: bestPv,
+    pathDependent,
+  };
+}
+
+function tacticalSearch(
+  position: MorrisPosition,
+  alphaInput: number,
+  beta: number,
+  context: SearchContext,
+  distanceFromRoot: number,
+  remainingDepth: number,
+  countNode = true,
+): NodeResult {
+  if (countNode) {
+    context.nodes += 1;
+    checkStopped(context, context.nodes % 256 === 0);
+  }
+
+  const status = getGameStatus(position);
+  if (status.state === "won") {
+    const score =
+      status.winner === position.turn
+        ? MATE_SCORE - distanceFromRoot
+        : -MATE_SCORE + distanceFromRoot;
+    return { score, pv: [], pathDependent: false };
+  }
+  const pathKey = repetitionKey(position);
+  if ((context.repetitions.get(pathKey) ?? 0) >= 2) {
+    return {
+      score:
+        position.turn === context.rootPlayer
+          ? context.drawScore
+          : -context.drawScore,
+      pv: [],
+      pathDependent: true,
+    };
+  }
+
+  const legal = generateLegalMoves(position);
+  if (
+    remainingDepth <= 0 ||
+    !legal.some((move) => move.remove !== null)
+  ) {
+    return {
+      score: evaluateCached(position, context),
+      pv: [],
+      pathDependent: false,
+    };
+  }
+
+  let alpha = alphaInput;
+  const ordered = orderMoves(legal, null, context, distanceFromRoot);
+  let bestScore = -INF;
+  let bestPv: MorrisMove[] = [];
+  let pathDependent = false;
+  pushRepetition(context, pathKey);
+  try {
+    for (const move of ordered) {
+      const child = applyGeneratedMove(position, move);
+      const result = tacticalSearch(
+        child,
+        -beta,
+        -alpha,
+        context,
+        distanceFromRoot + 1,
+        remainingDepth - 1,
+      );
+      pathDependent = pathDependent || result.pathDependent;
+      const score = -result.score;
+      if (score > bestScore) {
+        bestScore = score;
+        bestPv = [move, ...result.pv];
+      }
+      alpha = Math.max(alpha, score);
+      if (alpha >= beta) break;
+    }
+  } finally {
+    popRepetition(context, pathKey);
+  }
+  return {
+    score: bestScore,
+    pv: bestPv,
+    pathDependent,
+  };
+}
+
+function evaluateCached(
+  position: MorrisPosition,
+  context: SearchContext,
+): number {
+  const key = hashPosition(position);
+  const cached = context.evaluations.get(key);
+  if (cached !== undefined) return cached;
+  const score = evaluatePosition(position, position.turn);
+  if (context.evaluations.size < context.maxTableEntries) {
+    context.evaluations.set(key, score);
+  }
+  return score;
 }
 
 function orderMoves(
   moves: readonly MorrisMove[],
   preferredId: string | null,
+  context?: SearchContext,
+  distanceFromRoot = 0,
 ): MorrisMove[] {
+  const killers = context?.killers.get(distanceFromRoot) ?? [];
   return [...moves].sort((a, b) => {
     if (a.id === preferredId) return -1;
     if (b.id === preferredId) return 1;
     if (a.remove !== null && b.remove === null) return -1;
     if (b.remove !== null && a.remove === null) return 1;
+    const aKiller = killers.indexOf(a.id);
+    const bKiller = killers.indexOf(b.id);
+    if (aKiller !== bKiller) {
+      if (aKiller < 0) return 1;
+      if (bKiller < 0) return -1;
+      return aKiller - bKiller;
+    }
+    const historyDifference =
+      (context?.moveHistory.get(b.id) ?? 0) -
+      (context?.moveHistory.get(a.id) ?? 0);
+    if (historyDifference !== 0) return historyDifference;
     const aCentral = ADJACENCY[a.to].length;
     const bCentral = ADJACENCY[b.to].length;
     return bCentral - aCentral || a.id.localeCompare(b.id);
   });
+}
+
+function recordCutoff(
+  context: SearchContext,
+  move: MorrisMove,
+  depth: number,
+  distanceFromRoot: number,
+): void {
+  if (move.remove !== null) return;
+  context.moveHistory.set(
+    move.id,
+    Math.min(
+      1_000_000,
+      (context.moveHistory.get(move.id) ?? 0) + depth * depth,
+    ),
+  );
+  const current = context.killers.get(distanceFromRoot) ?? [];
+  if (current[0] === move.id) return;
+  context.killers.set(distanceFromRoot, [move.id, ...current].slice(0, 2));
 }
 
 function rankFallback(
@@ -834,17 +1277,151 @@ function makeProgress(
   };
 }
 
-function hashPosition(position: MorrisPosition): string {
-  let board = "";
-  for (const cell of position.board) board += cell === SELF ? "2" : cell === OPPONENT ? "1" : "0";
-  return `${board}:${position.turn}:${position.selfToPlace}:${position.opponentToPlace}`;
+function transpositionKey(
+  position: MorrisPosition,
+  context: SearchContext,
+): TableKey {
+  if (position.selfToPlace > 0 || position.opponentToPlace > 0) {
+    return hashPosition(position);
+  }
+  // Once movement can cycle, scores depend on the exact board orientation and
+  // repetition context. Folding either through symmetry would alias histories
+  // that have different draw outcomes.
+  const signatureA = context.repetitionSignatureA.toString(36);
+  const signatureB = context.repetitionSignatureB.toString(36);
+  return `${repetitionKey(position)}:${signatureA}:${signatureB}`;
+}
+
+function hashPosition(position: MorrisPosition): number {
+  let canonicalBoard = Number.POSITIVE_INFINITY;
+  for (const transform of MORRIS_AUTOMORPHISMS) {
+    let encoded = 0;
+    for (const source of transform) {
+      const cell = position.board[source];
+      encoded =
+        encoded * 3 +
+        (cell === EMPTY ? 0 : cell === position.turn ? 2 : 1);
+    }
+    canonicalBoard = Math.min(canonicalBoard, encoded);
+  }
+  const ownReserve = getPiecesToPlace(position, position.turn);
+  const enemyReserve = getPiecesToPlace(position, otherPlayer(position.turn));
+  return (canonicalBoard * 10 + ownReserve) * 10 + enemyReserve;
+}
+
+function repetitionKey(position: MorrisPosition): number {
+  let board = 0;
+  for (const cell of position.board) {
+    board = board * 3 + (cell === EMPTY ? 0 : cell === SELF ? 2 : 1);
+  }
+  const turn = position.turn === SELF ? 1 : 0;
+  return (
+    ((board * 2 + turn) * 10 + position.selfToPlace) * 10 +
+    position.opponentToPlace
+  );
+}
+
+function repetitionCounts(
+  positions: readonly MorrisPosition[],
+): Map<number, number> {
+  const counts = new Map<number, number>();
+  for (const position of positions) {
+    const key = repetitionKey(position);
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return counts;
+}
+
+function mix32(value: number): number {
+  value = Math.imul(value ^ (value >>> 16), 0x7feb352d);
+  value = Math.imul(value ^ (value >>> 15), 0x846ca68b);
+  return (value ^ (value >>> 16)) >>> 0;
+}
+
+function repetitionToken(
+  key: number,
+  count: number,
+): readonly [number, number] {
+  const low = key >>> 0;
+  const high = Math.floor(key / 0x1_0000_0000) >>> 0;
+  return [
+    mix32(low ^ Math.imul(high, 0x9e3779b1) ^ Math.imul(count, 0x85ebca6b)),
+    mix32(high ^ Math.imul(low, 0xc2b2ae35) ^ Math.imul(count, 0x27d4eb2f)),
+  ];
+}
+
+function makeRepetitionSignature(
+  counts: ReadonlyMap<number, number>,
+): readonly [number, number] {
+  let signatureA = 0;
+  let signatureB = 0;
+  for (const [key, count] of counts) {
+    if (count <= 0) continue;
+    const token = repetitionToken(key, count);
+    signatureA = (signatureA ^ token[0]) >>> 0;
+    signatureB = (signatureB ^ token[1]) >>> 0;
+  }
+  return [signatureA, signatureB];
+}
+
+function pushRepetition(context: SearchContext, key: number): void {
+  const current = context.repetitions.get(key) ?? 0;
+  if (current > 0) toggleRepetitionToken(context, key, current);
+  const next = current + 1;
+  context.repetitions.set(key, next);
+  toggleRepetitionToken(context, key, next);
+}
+
+function popRepetition(context: SearchContext, key: number): void {
+  const current = context.repetitions.get(key) ?? 1;
+  toggleRepetitionToken(context, key, current);
+  const remaining = current - 1;
+  if (remaining <= 0) context.repetitions.delete(key);
+  else {
+    context.repetitions.set(key, remaining);
+    toggleRepetitionToken(context, key, remaining);
+  }
+}
+
+function toggleRepetitionToken(
+  context: SearchContext,
+  key: number,
+  count: number,
+): void {
+  const token = repetitionToken(key, count);
+  context.repetitionSignatureA =
+    (context.repetitionSignatureA ^ token[0]) >>> 0;
+  context.repetitionSignatureB =
+    (context.repetitionSignatureB ^ token[1]) >>> 0;
+}
+
+function scoreToTable(score: number, distanceFromRoot: number): number {
+  if (score >= MATE_SCORE - 10_000) return score + distanceFromRoot;
+  if (score <= -MATE_SCORE + 10_000) return score - distanceFromRoot;
+  return score;
+}
+
+function scoreFromTable(score: number, distanceFromRoot: number): number {
+  if (score >= MATE_SCORE - 10_000) return score - distanceFromRoot;
+  if (score <= -MATE_SCORE + 10_000) return score + distanceFromRoot;
+  return score;
 }
 
 function storeTable(
   context: SearchContext,
-  key: string,
+  key: TableKey,
   entry: TableEntry,
 ): void {
+  const current = context.table.get(key);
+  if (current && current.depth > entry.depth) return;
+  if (
+    current &&
+    current.depth === entry.depth &&
+    current.bound === "exact" &&
+    entry.bound !== "exact"
+  ) {
+    return;
+  }
   if (context.table.size >= context.maxTableEntries && !context.table.has(key)) {
     // Map preserves insertion order; dropping the oldest quarter keeps pauses
     // rare while bounding memory in long browser sessions.
