@@ -1,38 +1,51 @@
-# 迂棋参谋
+# 棋局参谋 / Board Tactician
 
-一个面向 2026 年 7 月 9 日发售的《Assassin's Creed Black Flag Resynced》（《刺客信条 IV：黑旗》重制版）迂棋（Fanorona）小游戏的本地棋路助手。棋盘固定为对手在上、我方在下；录入对手完整回合后，本地 Web Worker 会计算并标出我方推荐棋路。
+[简体中文](#简体中文) | [English](#english)
 
-> 从拿骚酒馆输掉 4000 多金币，到造出一个更强的本地 AI：[阅读迂棋参谋的完整诞生故事](./STORY.md)。
+## 简体中文
 
-## 直接下载：打包好的离线版本
+面向《Assassin's Creed Black Flag Resynced》（《刺客信条 IV：黑旗》重制版）及原版《刺客信条 IV：黑旗》的本地棋路助手。支持迂棋（Fanorona）、8×8 英式西洋跳棋（English Draughts / Checkers）和莫里斯九子棋（Nine Men's Morris）。
 
-不想配置开发环境时，直接下载对应平台的成品。两个版本都已内置界面、规则和搜索引擎，运行时不需要联网、不调用 AI 接口，也不消耗 Token。
+玩家在程序中录入对手的完整行动，内置搜索引擎会在本机计算并标出我方推荐棋路。棋盘固定为对手在上、我方在下，方便和游戏画面直接核对。
 
-| 平台 | 成品下载 | 运行要求 |
+> 这个项目起源于拿骚酒馆里输掉的 4000 多金币：[阅读项目的诞生故事](./STORY.md)。
+
+### 直接下载：打包好的离线版本
+
+两个成品都已内置界面、棋规和搜索引擎。运行时不需要联网，不调用 OpenAI 或其他 AI 接口，也不消耗 Token。
+
+| 平台 | 下载 | 运行要求 |
 | --- | --- | --- |
-| Windows | [下载 Windows x64 便携版 EXE](https://github.com/1902325620-del/fanorona-tactician/releases/latest/download/fanorona-tactician-windows-x64.exe) | Windows 10/11 64 位；双击运行，无需安装 Node.js 或 .NET |
-| Android | [下载 Android 64 位 APK](https://github.com/1902325620-del/fanorona-tactician/releases/latest/download/fanorona-tactician-android-arm64.apk) | Android 7.0 以上；安装时允许当前应用“安装未知应用” |
+| Windows | [Windows x64 便携版 EXE](https://github.com/1902325620-del/fanorona-tactician/releases/latest/download/board-tactician-windows-portable.exe) | Windows 10/11 64 位；无需安装 Node.js 或 .NET |
+| Android | [Android APK](https://github.com/1902325620-del/fanorona-tactician/releases/latest/download/board-tactician-android.apk) | Android 7.0 以上 |
 
-[查看全部版本与校验值](https://github.com/1902325620-del/fanorona-tactician/releases/latest)
+[查看最新 Release、更新说明与 SHA-256 校验值](https://github.com/1902325620-del/fanorona-tactician/releases/latest)
 
-这些文件由本仓库源码直接构建，暂未使用商业代码签名证书，因此 Windows SmartScreen 或安卓系统可能显示来源提示。
+项目暂未使用商业代码签名证书，因此 Windows SmartScreen 或 Android 可能显示来源提示。Android 更新包使用同一签名，可覆盖安装旧版本。
 
-重制版采用的迂棋规则与传统 9×5 Fanorona 规则一致，因此本项目也可用于原版《刺客信条 IV：黑旗》及其他采用相同规则的游戏。
+### 支持的棋类
 
-本项目从零实现界面、规则引擎和搜索算法，不包含《刺客信条》或 Ubisoft 的游戏文件、美术资源及代码，也与 Ubisoft 没有隶属或授权关系。
+- **迂棋 9×5**：必吃、撞吃、拖吃、连续吃子与可选停止。
+- **英式西洋跳棋 8×8**：有吃必吃、连续跳吃、单格王棋与升王。游戏使用的不是 10×10 国际跳棋规则。
+- **莫里斯九子棋**：摆子、成磨取子、相邻走子、三子飞行与终局判定。
 
-## 开发说明
+### 主要功能
 
-本项目主要由 GPT-5.6 AI 在项目发起者的需求设计、测试反馈和最终决策指导下开发，包括规则引擎、搜索算法、Web 界面、Windows 便携版与 Android 版本。AI 生成代码已经过自动化测试，但实际棋局表现仍欢迎玩家复核和改进。
+- 三种棋均使用本地迭代加深 Alpha-Beta 搜索，并提供前三候选棋路。
+- 简体中文与英文界面，顶部可快速切换棋类。
+- 默认快速搜索，也可选择强力或复仇强度。
+- 支持整回合撤销、任意局面编辑、先手切换和棋子颜色自动互换。
+- 西洋跳棋可快速取消或切换所选棋子，并明确提示强制吃子与连续跳吃限制。
+- Android 适配状态栏、摄像头开孔和底部导航安全区，并提供底部快捷确认与终局提示。
+- Windows 便携版只在 `127.0.0.1` 启动本机页面，不对外提供服务。
 
-## 能力
+### 开发说明
 
-- 完整 Fanorona 9×5 规则，包括必吃、撞吃/拖吃、可选停止连吃和首回合连吃
-- 迭代加深 Negamax、Alpha-Beta、置换表、安静搜索与走法排序
-- 三档思考时间、前三候选、整回合撤销和任意局面校准
-- 全部搜索在浏览器本地完成
+本项目主要由 GPT-5.6 AI 在项目发起者的需求设计、实机测试、规则反馈和最终决策指导下开发，包括规则引擎、搜索算法、Web 界面、Windows 便携版与 Android 版本。AI 生成代码已经过自动化测试和实际操作验证，但仍欢迎玩家复核棋规与改进搜索质量。
 
-## 本地运行
+本项目不包含《刺客信条》或 Ubisoft 的游戏文件、美术资源及代码，也与 Ubisoft 没有隶属、授权或合作关系。
+
+### 本地开发
 
 需要 Node.js 22.13+ 与 pnpm 11：
 
@@ -41,35 +54,92 @@ pnpm install
 pnpm dev
 ```
 
-验证：
+验证与构建：
 
 ```bash
 pnpm test
 pnpm run test:mobile
 pnpm run lint
-```
-
-## Windows 离线分享
-
-```bash
 pnpm build:launcher
-```
-
-构建机需要 .NET 10 SDK。该命令会生成 `outputs/fanorona-windows-portable.exe`。EXE 内嵌完整网页和引擎，运行后只在 `127.0.0.1` 启动临时 HTTP 服务并打开默认浏览器。接收者不需要安装 Node.js、.NET、联网或使用 API Token。
-
-`pnpm build:portable` 仍会生成单 HTML，但 `file://` 页面可能被浏览器阻止创建 Web Worker，因此它只作为限制说明和 HTTP/HTTPS 调试产物，不是正式离线入口。
-
-## 手机端
-
-```bash
-dotnet workload install android
 pnpm build:apk
 ```
 
-会生成 `outputs/fanorona-android.apk`。APK 在内置 WebView 的本地虚拟 HTTPS 域名中加载界面和 Web Worker，不依赖外部网站。`pnpm build:mobile` 另会生成可部署到 HTTPS 静态网站的 PWA；PWA 首次加载后支持离线使用。
+Windows 构建需要 .NET 10 SDK；Android 构建还需要 .NET Android workload。`pnpm build:portable` 会生成单 HTML 调试产物，但 `file://` 可能阻止 Web Worker，因此正式离线分享请使用 EXE 或 APK。
 
-## 开源协议
+### 协议与记录
 
-[MIT](./LICENSE)
+- [MIT License](./LICENSE)
+- [版本维护记录](./CHANGELOG.md)
+- [第三方开源许可](./THIRD_PARTY_NOTICES.md)
 
-版本维护记录见 [CHANGELOG.md](./CHANGELOG.md)。
+---
+
+## English
+
+Board Tactician is a local move assistant for *Assassin's Creed Black Flag Resynced* and the original *Assassin's Creed IV: Black Flag*. It supports Fanorona, 8x8 English Draughts / Checkers, and Nine Men's Morris.
+
+Enter the opponent's complete action and the built-in engine calculates recommended replies entirely on your device. The opponent is always shown at the top and your side at the bottom, making the board easy to compare with the game.
+
+> The project began after losing more than 4,000 in-game coins at the Nassau tavern. The full origin story is currently available [in Chinese](./STORY.md).
+
+### Download the ready-to-use offline builds
+
+Both packages include the complete interface, rules, and search engines. They do not require an internet connection at runtime, call OpenAI or any other AI API, or consume tokens.
+
+| Platform | Download | Requirements |
+| --- | --- | --- |
+| Windows | [Windows x64 portable EXE](https://github.com/1902325620-del/fanorona-tactician/releases/latest/download/board-tactician-windows-portable.exe) | 64-bit Windows 10/11; no Node.js or .NET installation required |
+| Android | [Android APK](https://github.com/1902325620-del/fanorona-tactician/releases/latest/download/board-tactician-android.apk) | Android 7.0 or later |
+
+[Open the latest release for notes and SHA-256 checksums](https://github.com/1902325620-del/fanorona-tactician/releases/latest)
+
+The builds are not signed with a commercial code-signing certificate, so Windows SmartScreen or Android may display a source warning. Android updates use the same signing key and can be installed over earlier versions.
+
+### Supported games
+
+- **Fanorona 9x5**: mandatory captures, approach and withdrawal captures, capture chains, and optional stopping.
+- **English Draughts 8x8**: mandatory captures, multiple jumps, single-step kings, and promotion. This is not 10x10 International Draughts.
+- **Nine Men's Morris**: placement, mills and removals, adjacent movement, flying with three pieces, and terminal-state detection.
+
+### Highlights
+
+- Local iterative-deepening Alpha-Beta search with three ranked candidates for every game.
+- Complete Simplified Chinese and English interface with a top game switcher.
+- Quick search by default, with Strong and Revenge presets available.
+- Full-turn undo, position editing, first-player switching, and automatic piece-color swapping.
+- Fast draughts piece selection with clear feedback for mandatory captures and unfinished multiple jumps.
+- Android safe-area handling for status bars, display cutouts, and navigation bars, plus quick confirmation and game-over prompts.
+- The Windows build only serves the embedded app on `127.0.0.1` and never exposes it to the network.
+
+### Development
+
+This project was developed primarily by GPT-5.6 AI under the project owner's requirements, device testing, rule feedback, and final decisions. The AI contributed the rules engines, search algorithms, Web interface, Windows portable build, and Android app. Generated code has been covered by automated tests and hands-on verification, while rule reviews and search improvements remain welcome.
+
+This project contains no Ubisoft or *Assassin's Creed* game files, artwork, or source code. It is not affiliated with, authorized by, or endorsed by Ubisoft.
+
+### Local development
+
+Node.js 22.13+ and pnpm 11 are required:
+
+```bash
+pnpm install
+pnpm dev
+```
+
+Tests and builds:
+
+```bash
+pnpm test
+pnpm run test:mobile
+pnpm run lint
+pnpm build:launcher
+pnpm build:apk
+```
+
+The Windows build requires the .NET 10 SDK. The Android build also requires the .NET Android workload. `pnpm build:portable` creates a single-file debugging build, but `file://` pages may block Web Workers; use the EXE or APK for reliable offline sharing.
+
+### License and records
+
+- [MIT License](./LICENSE)
+- [Changelog](./CHANGELOG.md)
+- [Third-party notices](./THIRD_PARTY_NOTICES.md)

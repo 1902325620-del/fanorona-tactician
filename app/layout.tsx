@@ -2,9 +2,9 @@ import type { Metadata, Viewport } from "next";
 import { headers } from "next/headers";
 import "./globals.css";
 
-const title = "迂棋参谋 | Assassin's Creed Fanorona AI";
+const title = "棋局参谋 | Assassin's Creed Board Game AI";
 const description =
-  "为《Assassin's Creed Black Flag Resynced》迂棋对局设计的本地 AI 棋路助手。录入对手落子，获得我方推荐棋路。";
+  "为《Assassin's Creed Black Flag Resynced》设计的本地棋路助手，支持迂棋、8×8 西洋跳棋与莫里斯九子棋。";
 
 export async function generateMetadata(): Promise<Metadata> {
   const requestHeaders = await headers();
@@ -21,12 +21,12 @@ export async function generateMetadata(): Promise<Metadata> {
   return {
     title,
     description,
-    applicationName: "迂棋参谋",
+    applicationName: "棋局参谋",
     manifest: "/manifest.webmanifest",
     appleWebApp: {
       capable: true,
       statusBarStyle: "black-translucent",
-      title: "迂棋参谋",
+      title: "棋局参谋",
     },
     icons: {
       icon: "/favicon.svg",
@@ -37,7 +37,7 @@ export async function generateMetadata(): Promise<Metadata> {
       title,
       description,
       type: "website",
-      images: [{ url: socialImage, alt: "迂棋参谋棋盘与推荐棋路" }],
+      images: [{ url: socialImage, alt: "棋局参谋的棋盘与推荐棋路" }],
     },
     twitter: {
       card: "summary_large_image",

@@ -12,7 +12,7 @@ internal static class Program
     private static async Task<int> Main(string[] args)
     {
         Console.OutputEncoding = Encoding.UTF8;
-        Console.Title = "迂棋参谋";
+        Console.Title = "棋局参谋";
 
         await using var server = new LoopbackServer(preferredPort: 39777);
         var url = $"http://127.0.0.1:{server.Port}/";
@@ -22,7 +22,7 @@ internal static class Program
             return await RunSelfTest(url);
         }
 
-        Console.WriteLine("迂棋参谋已启动");
+        Console.WriteLine("棋局参谋已启动");
         Console.WriteLine($"地址：{url}");
         Console.WriteLine("此窗口只提供本机页面，关闭窗口即可停止。不会向外联网。\n");
 
@@ -56,9 +56,9 @@ internal static class Program
             .Distinct(StringComparer.Ordinal)
             .ToArray();
 
-        if (!html.Contains("迂棋参谋", StringComparison.Ordinal) ||
+        if (!html.Contains("棋局参谋", StringComparison.Ordinal) ||
             !manifest.Contains("\"display\": \"standalone\"", StringComparison.Ordinal) ||
-            !worker.Contains("fanorona-tactician", StringComparison.Ordinal) ||
+            !worker.Contains("board-tactician", StringComparison.Ordinal) ||
             assetPaths.Length < 2)
         {
             Console.Error.WriteLine("Embedded web application validation failed.");

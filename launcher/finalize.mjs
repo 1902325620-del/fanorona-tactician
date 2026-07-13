@@ -16,15 +16,16 @@ await mkdir(shareDir, { recursive: true });
 const sourceExecutable = resolve(publishDir, executable);
 await Promise.all([
   copyFile(sourceExecutable, resolve(outputsDir, "fanorona-windows-portable.exe")),
-  copyFile(sourceExecutable, resolve(shareDir, "迂棋参谋-Windows便携版.exe")),
+  copyFile(sourceExecutable, resolve(outputsDir, "board-tactician-windows-portable.exe")),
+  copyFile(sourceExecutable, resolve(shareDir, "棋局参谋-Windows便携版.exe")),
   writeFile(
     resolve(shareDir, "使用说明.txt"),
-    `迂棋参谋 - Windows 便携版
+    `棋局参谋 - Windows 便携版
 
-双击“迂棋参谋-Windows便携版.exe”即可使用。
+双击“棋局参谋-Windows便携版.exe”即可使用。
 它会在本机 127.0.0.1 临时启动页面并自动打开默认浏览器，不监听局域网，不需要安装 Node，不需要联网，也不消耗 AI Token。
 
-“迂棋参谋.html”只用于解释 file:// 的浏览器限制，请不要把它当作正式启动入口。
+“棋局参谋.html”只用于解释 file:// 的浏览器限制，请不要把它当作正式启动入口。
 `,
     "utf8",
   ),

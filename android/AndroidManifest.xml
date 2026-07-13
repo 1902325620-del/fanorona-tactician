@@ -5,7 +5,7 @@
     android:allowBackup="false"
     android:hardwareAccelerated="true"
     android:icon="@mipmap/appicon"
-    android:label="迂棋参谋"
+    android:label="棋局参谋"
     android:supportsRtl="true"
     android:theme="@style/AppTheme"
     android:usesCleartextTraffic="false" />

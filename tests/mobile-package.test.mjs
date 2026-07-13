@@ -14,13 +14,15 @@ test("mobile PWA has an installable offline shell", async () => {
   ]);
   const manifest = JSON.parse(manifestText);
 
-  assert.equal(manifest.name, "迂棋参谋");
+  assert.equal(manifest.name, "棋局参谋");
   assert.equal(manifest.display, "standalone");
   assert.equal(manifest.start_url, "./");
   assert.match(html, /rel="manifest" href="\.\/manifest\.webmanifest"/);
   assert.match(html, /viewport-fit=cover/);
   assert.match(html, /native-shell/);
   assert.match(serviceWorker, /PRECACHE\.push\("\.\/assets\/index-[^"]+\.js"/);
+  assert.match(serviceWorker, /\.\/THIRD_PARTY_NOTICES\.txt/);
+  await access(resolve(mobileDir, "THIRD_PARTY_NOTICES.txt"));
 
   const assetPaths = [
     ...html.matchAll(/(?:src|href)="\.\/(assets\/[^"?#]+)"/g),
@@ -29,10 +31,18 @@ test("mobile PWA has an installable offline shell", async () => {
   await Promise.all(assetPaths.map((path) => access(resolve(mobileDir, path))));
 
   const stylePath = assetPaths.find((path) => path.endsWith(".css"));
+  const scriptPath = assetPaths.find((path) => path.endsWith(".js"));
   assert.ok(stylePath);
+  assert.ok(scriptPath);
   const styles = await readFile(resolve(mobileDir, stylePath), "utf8");
+  const script = await readFile(resolve(mobileDir, scriptPath), "utf8");
   assert.match(styles, /safe-area-inset-top/);
   assert.match(styles, /safe-area-inset-bottom/);
+  assert.match(styles, /\.recommendation-confirm\{[^}]*position:fixed/);
+  assert.doesNotMatch(styles, /native-shell[^}]+safe-area-top:\s*0/);
+  assert.match(script, /classList\.contains\("native-shell"\)/);
+  assert.match(script, /first-turn-button/);
+  assert.match(script, /gameover-overlay/);
 
   for (const icon of manifest.icons) {
     await access(resolve(mobileDir, icon.src.replace(/^\.\//, "")));
@@ -40,14 +50,20 @@ test("mobile PWA has an installable offline shell", async () => {
 });
 
 test("Android shell applies system bar and display cutout insets", async () => {
-  const activity = await readFile(
-    resolve(projectDir, "android", "MainActivity.cs"),
-    "utf8",
-  );
+  const [activity, android15Style] = await Promise.all([
+    readFile(resolve(projectDir, "android", "MainActivity.cs"), "utf8"),
+    readFile(resolve(projectDir, "android", "Resources", "values-v35", "styles.xml"), "utf8"),
+  ]);
   assert.match(activity, /WindowInsets\.Type\.SystemBars\(\)/);
   assert.match(activity, /WindowInsets\.Type\.DisplayCutout\(\)/);
+  assert.match(activity, /new FrameLayout\(this\)/);
+  assert.match(activity, /new WindowInsets\.Builder\(insets\)/);
+  assert.match(activity, /\.SetInsets\(handledTypes,/);
   assert.match(activity, /SetPadding\(safeInsets\.Left, safeInsets\.Top, safeInsets\.Right, safeInsets\.Bottom\)/);
+  assert.doesNotMatch(activity, /return WindowInsets\.Consumed/);
   assert.match(activity, /index\.html\?native=android/);
+  assert.match(android15Style, /windowLightStatusBar">true/);
+  assert.match(android15Style, /statusBarColor">@android:color\/transparent/);
 });
 
 test("mobile icons have the declared PNG dimensions", async () => {

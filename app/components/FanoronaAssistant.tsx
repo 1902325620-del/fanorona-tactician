@@ -4,11 +4,8 @@ import {
   ArrowRight,
   BrainCircuit,
   Check,
-  Download,
-  Pencil,
   RotateCcw,
   Square,
-  Undo2,
   X,
 } from "lucide-react";
 import {
@@ -23,6 +20,7 @@ import {
   applyStep,
   createInitialPosition,
   generateLegalMoves,
+  getGameStatus,
   indexToAlgebraic,
   type Cell,
   type Position,
@@ -30,6 +28,10 @@ import {
   type TurnMove,
 } from "../lib/fanorona";
 import { pieceToneFor } from "../lib/presentation";
+import { type Locale, t } from "../lib/i18n";
+import { AppHeader } from "./AppHeader";
+import { type AssistantNavigationProps } from "./assistantTypes";
+import { GameOverNotice } from "./GameOverNotice";
 
 type Phase = "opponent" | "thinking" | "recommendation" | "edit" | "gameover";
 type Brush = -1 | 0 | 1;
@@ -84,15 +86,10 @@ interface WorkerErrorMessage {
 
 type WorkerMessage = WorkerProgressMessage | WorkerResultMessage | WorkerErrorMessage;
 
-interface InstallPromptEvent extends Event {
-  prompt: () => Promise<void>;
-  userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
-}
-
-const STRENGTHS: Record<string, { label: string; timeMs: number; maxDepth: number }> = {
-  quick: { label: "快速 · 2 秒", timeMs: 2_000, maxDepth: 8 },
-  strong: { label: "强力 · 8 秒", timeMs: 8_000, maxDepth: 12 },
-  revenge: { label: "复仇 · 20 秒", timeMs: 20_000, maxDepth: 16 },
+const STRENGTHS: Record<string, { labelKey: "common.quick" | "common.strong" | "common.revenge"; timeMs: number; maxDepth: number }> = {
+  quick: { labelKey: "common.quick", timeMs: 2_000, maxDepth: 8 },
+  strong: { labelKey: "common.strong", timeMs: 8_000, maxDepth: 12 },
+  revenge: { labelKey: "common.revenge", timeMs: 20_000, maxDepth: 16 },
 };
 
 const BOARD_WIDTH = 900;
@@ -169,10 +166,10 @@ function normalizeRankedMoves(
   });
 }
 
-function captureName(capture: Step["capture"]) {
-  if (capture === "approach") return "撞吃";
-  if (capture === "withdrawal") return "拖吃";
-  return "移动";
+function captureName(locale: Locale, capture: Step["capture"]) {
+  if (capture === "approach") return t(locale, "fanorona.approach");
+  if (capture === "withdrawal") return t(locale, "fanorona.withdrawal");
+  return t(locale, "common.move");
 }
 
 function routeNotation(move: TurnMove) {
@@ -188,9 +185,9 @@ function totalCaptures(move: TurnMove) {
   return move.steps.reduce((total, step) => total + step.captured.length, 0);
 }
 
-function scoreLabel(score: number) {
-  if (score > 900_000) return "胜势";
-  if (score < -900_000) return "险势";
+function scoreLabel(locale: Locale, score: number) {
+  if (score > 900_000) return t(locale, "fanorona.winScore");
+  if (score < -900_000) return t(locale, "fanorona.lossScore");
   const value = score / 100;
   return `${value >= 0 ? "+" : ""}${value.toFixed(1)}`;
 }
@@ -203,6 +200,7 @@ function compactNumber(value: number) {
 
 interface BoardProps {
   board: Cell[];
+  locale: Locale;
   firstPlayer: -1 | 1;
   selected: number | null;
   targets: Set<number>;
@@ -215,6 +213,7 @@ interface BoardProps {
 
 function FanoronaBoard({
   board,
+  locale,
   firstPlayer,
   selected,
   targets,
@@ -231,7 +230,7 @@ function FanoronaBoard({
       className="fanorona-board"
       viewBox={`0 0 ${BOARD_WIDTH} ${BOARD_HEIGHT}`}
       role="grid"
-      aria-label="迂棋棋盘，对手在上，我方在下"
+      aria-label={t(locale, "fanorona.boardAria")}
     >
       <defs>
         <marker
@@ -420,7 +419,7 @@ function FanoronaBoard({
           <g
             key={`hit-${index}`}
             role="button"
-            aria-label={`${indexToAlgebraic(index)}${board[index] === -1 ? " 对手棋子" : board[index] === 1 ? " 我方棋子" : " 空位"}`}
+            aria-label={`${indexToAlgebraic(index)}${board[index] === -1 ? t(locale, "fanorona.cellOpponent") : board[index] === 1 ? t(locale, "fanorona.cellSelf") : t(locale, "fanorona.cellEmpty")}`}
             aria-disabled={!interactive}
             tabIndex={interactive ? 0 : -1}
             onClick={() => interactive && onPoint(index)}
@@ -444,11 +443,21 @@ function FanoronaBoard({
   );
 }
 
-interface FanoronaAssistantProps {
+interface FanoronaAssistantProps extends AssistantNavigationProps {
   createWorker: () => Worker;
 }
 
-export function FanoronaAssistant({ createWorker }: FanoronaAssistantProps) {
+export function FanoronaAssistant({
+  createWorker,
+  active,
+  game,
+  locale,
+  installAvailable,
+  nativeAndroid,
+  onGameChange,
+  onInstall,
+  onLocaleChange,
+}: FanoronaAssistantProps) {
   const [position, setPosition] = useState<Position>(() => createInitialPosition(-1));
   const [firstTurn, setFirstTurn] = useState<-1 | 1>(-1);
   const [phase, setPhase] = useState<Phase>("opponent");
@@ -457,7 +466,7 @@ export function FanoronaAssistant({ createWorker }: FanoronaAssistantProps) {
   const [selectedFrom, setSelectedFrom] = useState<number | null>(null);
   const [pendingChoices, setPendingChoices] = useState<Step[] | null>(null);
   const [capturePreview, setCapturePreview] = useState<number[]>([]);
-  const [strength, setStrength] = useState("strong");
+  const [strength, setStrength] = useState("quick");
   const [searchProgress, setSearchProgress] = useState<SearchProgress>({
     depth: 0,
     nodes: 0,
@@ -469,7 +478,6 @@ export function FanoronaAssistant({ createWorker }: FanoronaAssistantProps) {
   const [editBoard, setEditBoard] = useState<Cell[]>([]);
   const [editTurn, setEditTurn] = useState<-1 | 1>(-1);
   const [brush, setBrush] = useState<Brush>(-1);
-  const [installPrompt, setInstallPrompt] = useState<InstallPromptEvent | null>(null);
   const [workerEpoch, setWorkerEpoch] = useState(0);
   const workerRef = useRef<Worker | null>(null);
   const searchIdRef = useRef(0);
@@ -572,9 +580,10 @@ export function FanoronaAssistant({ createWorker }: FanoronaAssistantProps) {
       setSearchResult(null);
       setRecommendationIndex(0);
       setError(null);
-      setPhase(next.turn === 1 ? "thinking" : "opponent");
+      const nextStatus = getGameStatus(next);
+      setPhase(nativeAndroid && nextStatus.state === "won" ? "gameover" : next.turn === 1 ? "thinking" : "opponent");
     },
-    [position, resetInput],
+    [nativeAndroid, position, resetInput],
   );
 
   const acceptOpponentStep = useCallback(
@@ -710,45 +719,18 @@ export function FanoronaAssistant({ createWorker }: FanoronaAssistantProps) {
     const opponentCount = editBoard.filter((piece) => piece === -1).length;
     const selfCount = editBoard.filter((piece) => piece === 1).length;
     if (opponentCount === 0 || selfCount === 0) {
-      setError("双方至少各留一枚棋子。空棋盘没法复仇。 ");
+      setError(t(locale, "fanorona.needsPieces"));
       return;
     }
-    setPosition({ board: [...editBoard], turn: editTurn });
+    const next = { board: [...editBoard], turn: editTurn };
+    setPosition(next);
     setHistory([]);
     setSearchResult(null);
     setRecommendationIndex(0);
     setError(null);
-    setPhase(editTurn === 1 ? "thinking" : "opponent");
-  }, [editBoard, editTurn]);
-
-  useEffect(() => {
-    if (
-      "serviceWorker" in navigator &&
-      (window.location.protocol === "https:" || window.location.hostname === "localhost")
-    ) {
-      navigator.serviceWorker.register("./sw.js").catch(() => undefined);
-    }
-
-    const captureInstallPrompt = (event: Event) => {
-      event.preventDefault();
-      setInstallPrompt(event as InstallPromptEvent);
-    };
-    const clearInstallPrompt = () => setInstallPrompt(null);
-
-    window.addEventListener("beforeinstallprompt", captureInstallPrompt);
-    window.addEventListener("appinstalled", clearInstallPrompt);
-    return () => {
-      window.removeEventListener("beforeinstallprompt", captureInstallPrompt);
-      window.removeEventListener("appinstalled", clearInstallPrompt);
-    };
-  }, []);
-
-  const installApp = useCallback(async () => {
-    if (!installPrompt) return;
-    await installPrompt.prompt();
-    await installPrompt.userChoice;
-    setInstallPrompt(null);
-  }, [installPrompt]);
+    const nextStatus = getGameStatus(next);
+    setPhase(nativeAndroid && nextStatus.state === "won" ? "gameover" : editTurn === 1 ? "thinking" : "opponent");
+  }, [editBoard, editTurn, locale, nativeAndroid]);
 
   useEffect(() => {
     let worker: Worker;
@@ -756,7 +738,7 @@ export function FanoronaAssistant({ createWorker }: FanoronaAssistantProps) {
       worker = createWorker();
     } catch {
       queueMicrotask(() => {
-        setError("当前运行环境阻止了本地计算线程，请改用便携版 EXE 或安卓安装包。 ");
+        setError(t(locale, "common.engineBlocked"));
         setPhase("gameover");
       });
       return;
@@ -775,7 +757,7 @@ export function FanoronaAssistant({ createWorker }: FanoronaAssistantProps) {
         return;
       }
       if (message.type === "error") {
-        setError(message.message ?? message.error ?? "引擎没有算完这一步，请重试。 ");
+        setError(message.message ?? message.error ?? t(locale, "common.engineRetry"));
         setPhase("gameover");
         return;
       }
@@ -806,7 +788,7 @@ export function FanoronaAssistant({ createWorker }: FanoronaAssistantProps) {
     };
 
     worker.onerror = () => {
-      setError("AI 引擎启动失败，请刷新页面再试。 ");
+      setError(t(locale, "common.engineFailed"));
       setPhase("gameover");
     };
 
@@ -814,7 +796,7 @@ export function FanoronaAssistant({ createWorker }: FanoronaAssistantProps) {
       worker.terminate();
       workerRef.current = null;
     };
-  }, [createWorker, workerEpoch]);
+  }, [createWorker, locale, workerEpoch]);
 
   const changeStrength = useCallback(
     (value: string) => {
@@ -825,7 +807,13 @@ export function FanoronaAssistant({ createWorker }: FanoronaAssistantProps) {
   );
 
   useEffect(() => {
-    if (position.turn !== 1 || phase === "edit" || phase === "recommendation") return;
+    if (active || phase !== "thinking") return;
+    const timer = window.setTimeout(restartWorker, 0);
+    return () => window.clearTimeout(timer);
+  }, [active, phase, restartWorker]);
+
+  useEffect(() => {
+    if (!active || position.turn !== 1 || phase === "edit" || phase === "recommendation") return;
     const worker = workerRef.current;
     if (!worker) return;
     const id = searchIdRef.current + 1;
@@ -842,92 +830,63 @@ export function FanoronaAssistant({ createWorker }: FanoronaAssistantProps) {
       options: { timeMs: preset.timeMs, maxDepth: preset.maxDepth, topN: 3 },
     });
     return () => worker.postMessage({ type: "cancel", id });
-  }, [phase, position, strength]);
+  }, [active, locale, phase, position, strength]);
 
   const confirmRecommendation = useCallback(() => {
     if (recommended) applyRecordedMove(recommended.move);
   }, [applyRecordedMove, recommended]);
 
   const turnText = (() => {
-    if (phase === "edit") return "摆盘校准中";
-    if (phase === "thinking") return "AI 正在计算我方棋路";
-    if (phase === "recommendation") return "照着绿线走我方棋子";
-    if (phase === "gameover") return "本局已结束";
-    if (partialSteps.length > 0) return "继续录入对手连吃，或结束回合";
-    if (selectedFrom !== null) return "选择对手落点";
-    return "录入对手棋路";
+    if (phase === "edit") return t(locale, "fanorona.turnEdit");
+    if (phase === "thinking") return t(locale, "fanorona.turnThinking");
+    if (phase === "recommendation") return t(locale, "fanorona.turnRecommend");
+    if (phase === "gameover") return t(locale, "fanorona.turnOver");
+    if (partialSteps.length > 0) return t(locale, "fanorona.turnContinue");
+    if (selectedFrom !== null) return t(locale, "fanorona.turnTarget");
+    return t(locale, "fanorona.turnInput");
   })();
 
   const noOpponentMove = phase === "opponent" && opponentMoves.length === 0;
+  const status = useMemo(() => getGameStatus(position), [position]);
   const latestHistory = history.slice(-12).reverse();
   const canUndo = pendingChoices !== null || partialSteps.length > 0 || history.length > 0;
 
   return (
-    <main className="app-shell">
-      <header className="topbar">
-        <div className="topbar-inner">
-          <div className="brand">
-            <div className="brand-mark" aria-hidden="true" />
-            <div className="brand-copy">
-              <h1>迂棋参谋</h1>
-              <p>Assassin&apos;s Creed · Fanorona 9×5</p>
-            </div>
-          </div>
-          <div className="toolbar">
-            <span className="engine-pill">
-              <span className="engine-dot" />
-              本地 AI
-            </span>
-            {installPrompt && (
-              <button
-                className="icon-button"
-                type="button"
-                aria-label="安装到手机"
-                title="安装到手机"
-                onClick={installApp}
-              >
-                <Download size={18} />
-              </button>
-            )}
-            <button
-              className="icon-button"
-              type="button"
-              aria-label="撤销"
-              title="撤销"
-              disabled={!canUndo || phase === "edit"}
-              onClick={undo}
-            >
-              <Undo2 size={18} />
-            </button>
-            <button
-              className="icon-button"
-              type="button"
-              aria-label="校准棋盘"
-              title="校准棋盘"
-              disabled={phase === "edit"}
-              onClick={beginEdit}
-            >
-              <Pencil size={17} />
-            </button>
-            <button
-              className="icon-button"
-              type="button"
-              aria-label="重新开局"
-              title="重新开局"
-              onClick={() => newGame()}
-            >
-              <RotateCcw size={18} />
-            </button>
-          </div>
-        </div>
-      </header>
+    <main className={`app-shell${phase === "recommendation" ? " has-recommendation-confirm" : ""}`}>
+      <AppHeader
+        game={game}
+        locale={locale}
+        installAvailable={installAvailable}
+        nativeAndroid={nativeAndroid}
+        firstTurn={firstTurn}
+        onGameChange={onGameChange}
+        onInstall={onInstall}
+        onToggleFirstTurn={() => newGame(firstTurn === -1 ? 1 : -1)}
+        onLocaleChange={onLocaleChange}
+        canUndo={canUndo}
+        editing={phase === "edit"}
+        onUndo={undo}
+        onEdit={beginEdit}
+        onReset={() => newGame()}
+      />
+
+      {active && nativeAndroid && phase === "gameover" && !error && status.state === "won" && status.winner !== null && status.reason !== null && (
+        <GameOverNotice
+          locale={locale}
+          won={status.winner === 1}
+          detail={t(locale, status.reason === "elimination"
+            ? status.winner === 1 ? "fanorona.endEliminationSelf" : "fanorona.endEliminationOpponent"
+            : status.winner === 1 ? "fanorona.endBlockedSelf" : "fanorona.endBlockedOpponent")}
+          onRestart={() => newGame()}
+        />
+      )}
 
       <div className="workspace">
-        <section className="board-column" aria-label="对局棋盘">
+        <section className="board-column" aria-label={t(locale, "fanorona.boardSection")}>
           <div className="board-toolbar">
             <div className="player-label">
               <span className={`piece-swatch opponent ${pieceToneFor(-1, firstTurn)}`} />
-              对手
+              {t(locale, "common.opponent")}
               <span className="count-pill">{counts.opponent}</span>
             </div>
             <div
@@ -944,7 +903,7 @@ export function FanoronaAssistant({ createWorker }: FanoronaAssistantProps) {
             </div>
             <div className="player-label">
               <span className="count-pill">{counts.self}</span>
-              我方
+              {t(locale, "common.self")}
               <span className={`piece-swatch self ${pieceToneFor(1, firstTurn)}`} />
             </div>
           </div>
@@ -952,6 +911,7 @@ export function FanoronaAssistant({ createWorker }: FanoronaAssistantProps) {
           <div className="board-frame">
             <FanoronaBoard
               board={displayBoard}
+              locale={locale}
               firstPlayer={firstTurn}
               selected={phase === "edit" ? null : selectedFrom}
               targets={phase === "edit" ? new Set<number>() : targetIndices}
@@ -964,36 +924,36 @@ export function FanoronaAssistant({ createWorker }: FanoronaAssistantProps) {
           </div>
 
           <div className="board-footer">
-            <span className="board-note">a–i · 上方第 5 行 · 下方第 1 行</span>
-            <div className="legend" aria-label="棋盘标记">
-              <span><i className="legend-dot" />可落点</span>
-              <span><i className="legend-dot route" />我方推荐</span>
+            <span className="board-note">{t(locale, "fanorona.coordinateNote")}</span>
+            <div className="legend" aria-label={t(locale, "fanorona.markerLegend")}>
+              <span><i className="legend-dot" />{t(locale, "fanorona.legalTarget")}</span>
+              <span><i className="legend-dot route" />{t(locale, "fanorona.selfRoute")}</span>
             </div>
           </div>
         </section>
 
-        <aside className="analysis-panel" aria-label="棋路控制台">
+        <aside className="analysis-panel" aria-label={t(locale, "fanorona.console")}>
           <section className="panel-section" aria-live="polite">
             {phase === "opponent" && (
               <>
                 <div className="panel-heading-row">
                   <div>
-                    <p className="eyebrow">对手回合</p>
+                    <p className="eyebrow">{t(locale, "common.opponentTurn")}</p>
                     <h2 className="panel-title">
                       {pendingChoices
-                        ? "选择吃法"
+                        ? t(locale, "fanorona.chooseCapture")
                         : partialSteps.length > 0
-                          ? "记录连续落子"
+                          ? t(locale, "fanorona.recordChain")
                           : selectedFrom !== null
-                            ? "选择落点"
-                            : "选择对手棋子"}
+                            ? t(locale, "fanorona.chooseTarget")
+                            : t(locale, "fanorona.choosePiece")}
                     </h2>
                   </div>
-                  <span className="mode-badge opponent">录入</span>
+                  <span className="mode-badge opponent">{t(locale, "common.input")}</span>
                 </div>
 
                 {noOpponentMove ? (
-                  <div className="warning-box">对手已无合法棋路，这局拿下了。</div>
+                  <div className="warning-box">{t(locale, "fanorona.opponentNoMove")}</div>
                 ) : pendingChoices ? (
                   <div className="capture-choice">
                     {pendingChoices.map((step) => (
@@ -1010,11 +970,11 @@ export function FanoronaAssistant({ createWorker }: FanoronaAssistantProps) {
                         <span className="choice-main">
                           <span className="choice-icon"><ArrowRight size={16} /></span>
                           <span className="choice-copy">
-                            <strong>{captureName(step.capture)}</strong>
+                            <strong>{captureName(locale, step.capture)}</strong>
                             <span>{indexToAlgebraic(step.from)} → {indexToAlgebraic(step.to)}</span>
                           </span>
                         </span>
-                        <span className="choice-count">吃 {step.captured.length} 子</span>
+                        <span className="choice-count">{t(locale, "fanorona.capturePieces", { count: step.captured.length })}</span>
                       </button>
                     ))}
                     <button
@@ -1025,16 +985,16 @@ export function FanoronaAssistant({ createWorker }: FanoronaAssistantProps) {
                         setCapturePreview([]);
                       }}
                     >
-                      <X size={16} /> 取消
+                      <X size={16} /> {t(locale, "common.cancel")}
                     </button>
                   </div>
                 ) : (
                   <>
                     <p className="panel-subtitle">
                       {partialSteps.length > 0
-                        ? `${indexToAlgebraic(partialSteps[0].from)} 起步，已录入 ${partialSteps.length} 段。`
+                        ? t(locale, "fanorona.startRecorded", { point: indexToAlgebraic(partialSteps[0].from), count: partialSteps.length })
                         : selectedFrom !== null
-                          ? `${indexToAlgebraic(selectedFrom)} 已选中。`
+                          ? t(locale, "fanorona.selected", { point: indexToAlgebraic(selectedFrom) })
                           : ""}
                     </p>
                     {partialSteps.length > 0 && (
@@ -1054,7 +1014,7 @@ export function FanoronaAssistant({ createWorker }: FanoronaAssistantProps) {
                           className="primary-button"
                           onClick={finishOpponentTurn}
                         >
-                          <Square size={15} fill="currentColor" /> 对手到此停手
+                          <Square size={15} fill="currentColor" /> {t(locale, "fanorona.stopOpponent")}
                         </button>
                       )}
                       {partialSteps.length > 0 && (
@@ -1063,7 +1023,7 @@ export function FanoronaAssistant({ createWorker }: FanoronaAssistantProps) {
                           className="secondary-button"
                           onClick={restartOpponentTurn}
                         >
-                          <RotateCcw size={16} /> 重录本回合
+                          <RotateCcw size={16} /> {t(locale, "fanorona.reenterTurn")}
                         </button>
                       )}
                     </div>
@@ -1076,18 +1036,20 @@ export function FanoronaAssistant({ createWorker }: FanoronaAssistantProps) {
               <>
                 <div className="panel-heading-row">
                   <div>
-                    <p className="eyebrow">我方回合</p>
-                    <h2 className="panel-title">正在算最狠的一步</h2>
+                    <p className="eyebrow">{t(locale, "common.selfTurn")}</p>
+                    <h2 className="panel-title">{t(locale, "fanorona.calculate")}</h2>
                   </div>
-                  <span className="mode-badge thinking">计算</span>
+                  <span className="mode-badge thinking">{t(locale, "common.thinking")}</span>
                 </div>
                 <div className="thinking-box">
                   <div className="spinner" aria-hidden="true" />
                   <div className="thinking-depth">
-                    {searchProgress.depth > 0 ? `已搜索 ${searchProgress.depth} 层` : "展开棋局"}
+                    {searchProgress.depth > 0
+                      ? t(locale, "common.searchDepth", { depth: searchProgress.depth })
+                      : t(locale, "common.expanding")}
                   </div>
                   <div className="thinking-nodes">
-                    {compactNumber(searchProgress.nodes)} 个局面
+                    {t(locale, "common.positionCount", { count: compactNumber(searchProgress.nodes) })}
                   </div>
                 </div>
               </>
@@ -1097,15 +1059,15 @@ export function FanoronaAssistant({ createWorker }: FanoronaAssistantProps) {
               <>
                 <div className="panel-heading-row">
                   <div>
-                    <p className="eyebrow">我方回合</p>
-                    <h2 className="panel-title">按绿线走</h2>
+                    <p className="eyebrow">{t(locale, "common.selfTurn")}</p>
+                    <h2 className="panel-title">{t(locale, "fanorona.followLine")}</h2>
                   </div>
-                  <span className="mode-badge">推荐</span>
+                  <span className="mode-badge">{t(locale, "common.recommendation")}</span>
                 </div>
 
                 {searchResult.topMoves.length > 1 && (
                   <label className="field-label" style={{ marginTop: 14 }}>
-                    候选棋路
+                    {t(locale, "common.candidateMoves")}
                     <select
                       className="select-control"
                       value={recommendationIndex}
@@ -1113,7 +1075,9 @@ export function FanoronaAssistant({ createWorker }: FanoronaAssistantProps) {
                     >
                       {searchResult.topMoves.map((entry, index) => (
                         <option key={`${routeNotation(entry.move)}-${index}`} value={index}>
-                          {index === 0 ? "首选" : `备选 ${index}`} · {routeNotation(entry.move)}
+                          {index === 0
+                            ? t(locale, "common.primary")
+                            : t(locale, "common.alternative", { index })} · {routeNotation(entry.move)}
                         </option>
                       ))}
                     </select>
@@ -1128,34 +1092,36 @@ export function FanoronaAssistant({ createWorker }: FanoronaAssistantProps) {
                         <span className="route-number">{index + 1}</span>
                         <span>{indexToAlgebraic(step.from)} → {indexToAlgebraic(step.to)}</span>
                         <span className="capture-label">
-                          {step.capture ? `${captureName(step.capture)} ${step.captured.length}` : "移动"}
+                          {step.capture
+                            ? `${captureName(locale, step.capture)} ${step.captured.length}`
+                            : t(locale, "common.move")}
                         </span>
                       </li>
                     ))}
                   </ol>
                   <div className="analysis-stats">
                     <div className="stat">
-                      <span className="stat-label">评分</span>
-                      <span className="stat-value">{scoreLabel(recommended.score)}</span>
+                      <span className="stat-label">{t(locale, "common.score")}</span>
+                      <span className="stat-value">{scoreLabel(locale, recommended.score)}</span>
                     </div>
                     <div className="stat">
-                      <span className="stat-label">搜索</span>
-                      <span className="stat-value">{searchResult.depth} 层</span>
+                      <span className="stat-label">{t(locale, "common.search")}</span>
+                      <span className="stat-value">{t(locale, "common.depth", { depth: searchResult.depth })}</span>
                     </div>
                     <div className="stat">
-                      <span className="stat-label">局面</span>
+                      <span className="stat-label">{t(locale, "common.positions")}</span>
                       <span className="stat-value">{compactNumber(searchResult.nodes)}</span>
                     </div>
                   </div>
                 </div>
 
-                <div className="action-stack">
+                <div className="action-stack recommendation-confirm">
                   <button
                     type="button"
                     className="primary-button"
                     onClick={confirmRecommendation}
                   >
-                    <Check size={18} /> 已在游戏中走完
+                    <Check size={18} /> {t(locale, "common.doneInGame")}
                   </button>
                 </div>
               </>
@@ -1165,36 +1131,36 @@ export function FanoronaAssistant({ createWorker }: FanoronaAssistantProps) {
               <>
                 <div className="panel-heading-row">
                   <div>
-                    <p className="eyebrow">局面校准</p>
-                    <h2 className="panel-title">摆成游戏里的样子</h2>
+                    <p className="eyebrow">{t(locale, "common.calibrate")}</p>
+                    <h2 className="panel-title">{t(locale, "common.matchGame")}</h2>
                   </div>
-                  <span className="mode-badge thinking">摆盘</span>
+                  <span className="mode-badge thinking">{t(locale, "common.editing")}</span>
                 </div>
-                <div className="edit-toolbar" aria-label="摆盘棋子">
+                <div className="edit-toolbar" aria-label={t(locale, "fanorona.editPieces")}>
                   <button
                     type="button"
                     className={`brush-button${brush === -1 ? " active" : ""}`}
                     onClick={() => setBrush(-1)}
                   >
-                    <span className={`piece-swatch opponent ${pieceToneFor(-1, firstTurn)}`} /> 对手
+                    <span className={`piece-swatch opponent ${pieceToneFor(-1, firstTurn)}`} /> {t(locale, "common.opponent")}
                   </button>
                   <button
                     type="button"
                     className={`brush-button${brush === 0 ? " active" : ""}`}
                     onClick={() => setBrush(0)}
                   >
-                    <span className="brush-empty" /> 空位
+                    <span className="brush-empty" /> {t(locale, "common.empty")}
                   </button>
                   <button
                     type="button"
                     className={`brush-button${brush === 1 ? " active" : ""}`}
                     onClick={() => setBrush(1)}
                   >
-                    <span className={`piece-swatch self ${pieceToneFor(1, firstTurn)}`} /> 我方
+                    <span className={`piece-swatch self ${pieceToneFor(1, firstTurn)}`} /> {t(locale, "common.self")}
                   </button>
                 </div>
                 <label className="field-label" style={{ marginTop: 14 }}>
-                  接下来轮到
+                  {t(locale, "common.nextTurn")}
                   <div className="segmented">
                     <button
                       type="button"
@@ -1202,7 +1168,7 @@ export function FanoronaAssistant({ createWorker }: FanoronaAssistantProps) {
                       aria-pressed={editTurn === -1}
                       onClick={() => setEditTurn(-1)}
                     >
-                      对手
+                      {t(locale, "common.opponent")}
                     </button>
                     <button
                       type="button"
@@ -1210,16 +1176,16 @@ export function FanoronaAssistant({ createWorker }: FanoronaAssistantProps) {
                       aria-pressed={editTurn === 1}
                       onClick={() => setEditTurn(1)}
                     >
-                      我方
+                      {t(locale, "common.self")}
                     </button>
                   </div>
                 </label>
                 <div className="inline-actions">
                   <button type="button" className="secondary-button" onClick={cancelEdit}>
-                    <X size={16} /> 取消
+                    <X size={16} /> {t(locale, "common.cancel")}
                   </button>
                   <button type="button" className="primary-button" onClick={confirmEdit}>
-                    <Check size={17} /> 应用局面
+                    <Check size={17} /> {t(locale, "common.apply")}
                   </button>
                 </div>
               </>
@@ -1229,16 +1195,20 @@ export function FanoronaAssistant({ createWorker }: FanoronaAssistantProps) {
               <>
                 <div className="panel-heading-row">
                   <div>
-                    <p className="eyebrow">终局</p>
+                    <p className="eyebrow">{t(locale, "common.gameOver")}</p>
                     <h2 className="panel-title">
-                      {counts.opponent === 0 || noOpponentMove ? "这局拿下" : "没有合法棋路"}
+                      {error
+                        ? t(locale, "common.engineError")
+                        : counts.opponent === 0 || noOpponentMove
+                        ? t(locale, "common.win")
+                        : t(locale, "common.noLegalMove")}
                     </h2>
                   </div>
-                  <span className="mode-badge">结束</span>
+                  <span className="mode-badge">{t(locale, "common.finished")}</span>
                 </div>
                 <div className="action-stack">
                   <button type="button" className="primary-button" onClick={() => newGame()}>
-                    <RotateCcw size={17} /> 再来一局
+                    <RotateCcw size={17} /> {t(locale, "common.playAgain")}
                   </button>
                 </div>
               </>
@@ -1250,26 +1220,26 @@ export function FanoronaAssistant({ createWorker }: FanoronaAssistantProps) {
           <section className="panel-section">
             <div className="panel-heading-row">
               <div>
-                <p className="eyebrow">引擎与开局</p>
-                <h2 className="panel-title">对局设置</h2>
+                <p className="eyebrow">{t(locale, "common.settingsEyebrow")}</p>
+                <h2 className="panel-title">{t(locale, "common.settings")}</h2>
               </div>
               <BrainCircuit size={19} aria-hidden="true" />
             </div>
-            <div className="settings-grid" style={{ marginTop: 14 }}>
+            <div className={`settings-grid${nativeAndroid ? " single-setting" : ""}`} style={{ marginTop: 14 }}>
               <label className="field-label">
-                AI 强度
+                {t(locale, "common.strength")}
                 <select
                   className="select-control"
                   value={strength}
                   onChange={(event) => changeStrength(event.target.value)}
                 >
                   {Object.entries(STRENGTHS).map(([value, preset]) => (
-                    <option key={value} value={value}>{preset.label}</option>
+                    <option key={value} value={value}>{t(locale, preset.labelKey)}</option>
                   ))}
                 </select>
               </label>
-              <div className="field-label">
-                新局先手
+              {!nativeAndroid && <div className="field-label">
+                {t(locale, "common.firstTurn")}
                 <div className="segmented">
                   <button
                     type="button"
@@ -1277,7 +1247,7 @@ export function FanoronaAssistant({ createWorker }: FanoronaAssistantProps) {
                     aria-pressed={firstTurn === -1}
                     onClick={() => newGame(-1)}
                   >
-                    对手先
+                    {t(locale, "common.opponentFirst")}
                   </button>
                   <button
                     type="button"
@@ -1285,23 +1255,23 @@ export function FanoronaAssistant({ createWorker }: FanoronaAssistantProps) {
                     aria-pressed={firstTurn === 1}
                     onClick={() => newGame(1)}
                   >
-                    我方先
+                    {t(locale, "common.selfFirst")}
                   </button>
                 </div>
-              </div>
+              </div>}
             </div>
           </section>
 
           <section className="panel-section">
             <div className="panel-heading-row">
               <div>
-                <p className="eyebrow">最近 12 回合</p>
-                <h2 className="panel-title">棋路记录</h2>
+                <p className="eyebrow">{t(locale, "common.recentTurns")}</p>
+                <h2 className="panel-title">{t(locale, "common.history")}</h2>
               </div>
               <span className="count-pill">{history.length}</span>
             </div>
             {latestHistory.length === 0 ? (
-              <div className="history-empty">尚未落子</div>
+              <div className="history-empty">{t(locale, "common.noHistory")}</div>
             ) : (
               <ol className="history-list">
                 {latestHistory.map((entry, index) => (
@@ -1312,11 +1282,13 @@ export function FanoronaAssistant({ createWorker }: FanoronaAssistantProps) {
                   >
                     <span className="history-index">{history.length - index}.</span>
                     <span className={`history-side ${entry.side === -1 ? "opponent" : "self"}`}>
-                      {entry.side === -1 ? "对手" : "我方"}
+                      {entry.side === -1 ? t(locale, "common.opponent") : t(locale, "common.self")}
                     </span>
                     <span className="history-notation">{routeNotation(entry.move)}</span>
                     <span className="history-captures">
-                      {totalCaptures(entry.move) > 0 ? `吃 ${totalCaptures(entry.move)}` : "—"}
+                      {totalCaptures(entry.move) > 0
+                        ? t(locale, "common.captured", { count: totalCaptures(entry.move) })
+                        : "—"}
                     </span>
                   </li>
                 ))}

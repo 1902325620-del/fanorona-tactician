@@ -1,6 +1,6 @@
 {
   "name": "fanorona-tactician",
-  "version": "1.1.0",
+  "version": "2.0.0",
   "private": true,
   "engines": {
     "node": ">=22.13.0"
@@ -13,13 +13,14 @@
     "build:launcher": "pnpm run build:mobile && node launcher/prepare.mjs && dotnet publish launcher/FanoronaLauncher.csproj -c Release -r win-x64 --self-contained true -o work/launcher-publish && node launcher/finalize.mjs",
     "build:apk": "pnpm run build:mobile && node android/prepare.mjs && node android/build.mjs && node android/finalize.mjs",
     "start": "vinext start",
-    "test": "pnpm run build && node --test tests/rendered-html.test.mjs && tsx --test tests/fanorona.test.ts tests/presentation.test.ts",
+    "test": "pnpm run build && node --test tests/rendered-html.test.mjs && tsx --test tests/fanorona.test.ts tests/draughts.test.ts tests/morris.test.ts tests/i18n.test.ts tests/presentation.test.ts",
     "test:mobile": "pnpm run build:mobile && node --test tests/mobile-package.test.mjs",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next --ignore-pattern work --ignore-pattern outputs"
   },
   "dependencies": {
     "lucide-react": "^1.23.0",
     "next": "16.2.6",
+    "rapid-draughts": "1.0.6",
     "react": "19.2.6",
     "react-dom": "19.2.6"
   },

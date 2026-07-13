@@ -25,3 +25,4 @@ const apk = await findSignedApk(searchRoot);
 if (!apk) throw new Error("Signed Android APK was not produced");
 await mkdir(outputsDir, { recursive: true });
 await copyFile(apk, resolve(outputsDir, "fanorona-android.apk"));
+await copyFile(apk, resolve(outputsDir, "board-tactician-android.apk"));

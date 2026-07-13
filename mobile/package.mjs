@@ -15,6 +15,7 @@ await Promise.all([
   cp(resolve(publicDir, "sw.js"), resolve(buildDir, "sw.js")),
   cp(resolve(publicDir, "favicon.svg"), resolve(buildDir, "favicon.svg")),
   cp(resolve(publicDir, "icons"), resolve(buildDir, "icons"), { recursive: true }),
+  cp(resolve(projectDir, "THIRD_PARTY_NOTICES.md"), resolve(buildDir, "THIRD_PARTY_NOTICES.txt")),
 ]);
 
 const htmlPath = resolve(buildDir, "index.html");
@@ -33,7 +34,7 @@ await mkdir(outputsDir, { recursive: true });
 await rm(outputDir, { recursive: true, force: true });
 await cp(buildDir, outputDir, { recursive: true });
 
-const instructions = `迂棋参谋手机端（PWA）
+const instructions = `棋局参谋手机端（PWA）
 
 这个文件夹是可安装网页应用：
 1. 将整个文件夹部署到任意支持 HTTPS 的静态网站。

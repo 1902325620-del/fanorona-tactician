@@ -1,7 +1,7 @@
 {
-  "name": "迂棋参谋",
-  "short_name": "迂棋",
-  "description": "面向《Assassin's Creed Black Flag Resynced》的离线 Fanorona 棋路助手。",
+  "name": "棋局参谋",
+  "short_name": "棋局参谋",
+  "description": "面向《Assassin's Creed Black Flag Resynced》的三棋类离线棋路助手。",
   "lang": "zh-CN",
   "id": "./",
   "start_url": "./",

@@ -3,12 +3,13 @@ using Android.Content.PM;
 using Android.OS;
 using Android.Views;
 using Android.Webkit;
+using Android.Widget;
 using Color = Android.Graphics.Color;
 
 namespace FanoronaTactician.AndroidApp;
 
 [Activity(
-    Label = "迂棋参谋",
+    Label = "棋局参谋",
     MainLauncher = true,
     Exported = true,
     Icon = "@mipmap/appicon",
@@ -24,6 +25,9 @@ public sealed class MainActivity : Activity
     protected override void OnCreate(Bundle? savedInstanceState)
     {
         base.OnCreate(savedInstanceState);
+
+        var root = new FrameLayout(this);
+        root.SetBackgroundColor(Color.Rgb(244, 246, 243));
 
         webView = new WebView(this);
         webView.SetBackgroundColor(Color.Rgb(244, 246, 243));
@@ -42,16 +46,22 @@ public sealed class MainActivity : Activity
         {
             Window?.SetDecorFitsSystemWindows(false);
         }
-        if (OperatingSystem.IsAndroidVersionAtLeast(30))
-        {
-            webView.SetOnApplyWindowInsetsListener(new SafeAreaInsetsListener());
-        }
         webView.SetWebViewClient(
             new LocalAssetClient(Assets ?? throw new InvalidOperationException("Android assets unavailable")));
         webView.SetWebChromeClient(new WebChromeClient());
 
-        SetContentView(webView);
-        webView.RequestApplyInsets();
+        root.AddView(
+            webView,
+            new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MatchParent,
+                ViewGroup.LayoutParams.MatchParent));
+        if (OperatingSystem.IsAndroidVersionAtLeast(30))
+        {
+            root.SetOnApplyWindowInsetsListener(new SafeAreaInsetsListener());
+        }
+
+        SetContentView(root);
+        root.RequestApplyInsets();
         webView.LoadUrl("https://app.local/index.html?native=android");
     }
 
@@ -73,7 +83,10 @@ internal sealed class SafeAreaInsetsListener : Java.Lang.Object, View.IOnApplyWi
         var safeInsets = insets.GetInsets(
             WindowInsets.Type.SystemBars() | WindowInsets.Type.DisplayCutout());
         view.SetPadding(safeInsets.Left, safeInsets.Top, safeInsets.Right, safeInsets.Bottom);
-        return WindowInsets.Consumed;
+        var handledTypes = WindowInsets.Type.SystemBars() | WindowInsets.Type.DisplayCutout();
+        return new WindowInsets.Builder(insets)
+            .SetInsets(handledTypes, Android.Graphics.Insets.Of(0, 0, 0, 0))
+            .Build();
     }
 }
 

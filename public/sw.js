@@ -1,11 +1,12 @@
-const CACHE_NAME = "fanorona-tactician-v3";
+const CACHE_NAME = "board-tactician-v5";
 const PRECACHE = [
   "./",
   "./manifest.webmanifest",
   "./favicon.svg",
   "./icons/icon-192.png",
   "./icons/icon-512.png",
-  "./icons/apple-touch-icon.png"
+  "./icons/apple-touch-icon.png",
+  "./THIRD_PARTY_NOTICES.txt"
 ];
 /*__MOBILE_PRECACHE__*/
 
