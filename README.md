@@ -41,9 +41,9 @@
 
 ### 九子棋引擎说明
 
-`2.1.0-alpha.3` 的只读行为审计确认，《黑旗》的九子棋对手并没有可检测的大型开局棋谱，而是使用低深度 Negamax/Alpha-Beta、置换表，以及总子数、空邻接边和已成磨三项评分。项目只依据可观察行为重新实现通用算法，不复制、注入、打包或依赖 Ubisoft 的代码与数据。
+`2.1.0` 的只读行为审计确认，《黑旗》的九子棋对手并没有可检测的大型开局棋谱，而是使用低深度 Negamax/Alpha-Beta、置换表，以及总子数、空邻接边和已成磨三项评分。项目只依据可观察行为重新实现通用算法，不复制、注入、打包或依赖 Ubisoft 的代码与数据。
 
-当前独立 Rust/WebAssembly 引擎在落子期采用同量纲的稳定评分基线，并额外使用 16 种棋盘对称置换表、战术走法排序、强制封堵与有限战术延伸。尚未搜索到全部落子时只保留完整双方回合的偶数层结果，避免短时限下的奇偶层摇摆；同时只计算一个首选落子，把预算集中到主变化。在时间允许时，搜索目标仍会覆盖所有剩余落子并继续验证 4 ply 移动阶段。开局共有 18 次落子，常用的 2 秒预算无法穷举全部变化，因此这是针对已确认缺陷的增强测试版，不是完美解，也不保证必胜。WebAssembly 无法加载或校验失败时，程序会回退到采用相同落子基线的 TypeScript 引擎；两种路径都完全离线，不联网且不消耗 Token。
+当前独立 Rust/WebAssembly 引擎在落子期采用同量纲的稳定评分基线，并额外使用 16 种棋盘对称置换表、战术走法排序、强制封堵与有限战术延伸。尚未搜索到全部落子时只保留完整双方回合的偶数层结果，避免短时限下的奇偶层摇摆；同时只计算一个首选落子，把预算集中到主变化。在时间允许时，搜索目标仍会覆盖所有剩余落子并继续验证 4 ply 移动阶段。开局共有 18 次落子，常用的 2 秒预算无法穷举全部变化，因此这是针对已确认缺陷并经过游戏内实战验收的正式增强，不是完美解，也不保证必胜。WebAssembly 无法加载或校验失败时，程序会回退到采用相同落子基线的 TypeScript 引擎；两种路径都完全离线，不联网且不消耗 Token。
 
 ### 开发说明
 
@@ -127,9 +127,9 @@ The builds are not signed with a commercial code-signing certificate, so Windows
 
 ### About the Morris engine
 
-The read-only behavioral audit behind `2.1.0-alpha.3` found no detectable large opening book in the Black Flag Morris opponent. It uses a shallow Negamax/Alpha-Beta search, a transposition table, and a compact score based on total material, empty adjacent edges, and completed mills. This project independently reimplements only observable, general algorithmic behavior; it does not copy, inject, bundle, or depend on Ubisoft code or data.
+The read-only behavioral audit behind `2.1.0` found no detectable large opening book in the Black Flag Morris opponent. It uses a shallow Negamax/Alpha-Beta search, a transposition table, and a compact score based on total material, empty adjacent edges, and completed mills. This project independently reimplements only observable, general algorithmic behavior; it does not copy, inject, bundle, or depend on Ubisoft code or data.
 
-The independent Rust/WebAssembly engine now uses a placement baseline on the same scale, plus 16-way board-symmetry caching, tactical move ordering, forced blocks, and bounded tactical extensions. Until search reaches the end of placement, it retains balanced even-ply results and calculates only one principal placement candidate, avoiding horizon oscillation and MultiPV budget waste. When time permits, the target still includes every remaining placement followed by four movement plies. The opening has 18 placements, so the normal two-second budget cannot exhaust every continuation. This is an enhanced test build aimed at a confirmed evaluation defect, not a perfect solution or a guaranteed win. If WebAssembly fails to load or validate, the app falls back to a TypeScript engine using the same placement baseline. Both paths are fully offline, make no network requests, and consume no tokens.
+The independent Rust/WebAssembly engine now uses a placement baseline on the same scale, plus 16-way board-symmetry caching, tactical move ordering, forced blocks, and bounded tactical extensions. Until search reaches the end of placement, it retains balanced even-ply results and calculates only one principal placement candidate, avoiding horizon oscillation and MultiPV budget waste. When time permits, the target still includes every remaining placement followed by four movement plies. The opening has 18 placements, so the normal two-second budget cannot exhaust every continuation. This is a field-tested release aimed at a confirmed evaluation defect, not a perfect solution or a guaranteed win. If WebAssembly fails to load or validate, the app falls back to a TypeScript engine using the same placement baseline. Both paths are fully offline, make no network requests, and consume no tokens.
 
 ### Development
 
