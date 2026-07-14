@@ -38,6 +38,9 @@ const cargoArguments = [
   target,
   "--",
   "--crate-type=cdylib",
+  // Rust embeds relative panic locations in the data section. Canonicalize
+  // Windows separators so semantic Wasm sections match Linux builds.
+  "--remap-path-prefix=src\\=src/",
 ];
 
 const generatedDir = path.join(rootDir, "app", "wasm", "generated");
