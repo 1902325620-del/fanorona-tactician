@@ -98,6 +98,12 @@ export interface SearchProgress {
   readonly score: number;
   readonly pv: readonly MorrisMove[];
   readonly topMoves: readonly SearchLine[];
+  /** Search backend used by the worker; omitted by direct TypeScript callers. */
+  readonly engine?: "wasm" | "typescript";
+  /** Full placement plus verification depth requested by the native engine. */
+  readonly placementTargetDepth?: number;
+  /** Whether the last completed iteration reached that placement target. */
+  readonly placementComplete?: boolean;
 }
 
 export interface SearchResult extends SearchProgress {
@@ -539,63 +545,58 @@ export function evaluatePosition(
     countPieces(position, perspective) + getPiecesToPlace(position, perspective);
   const enemyTotal =
     countPieces(position, enemy) + getPiecesToPlace(position, enemy);
+  const placing = position.selfToPlace > 0 || position.opponentToPlace > 0;
+
+  // Placement needs a stable horizon score even when the search cannot reach
+  // the movement phase. Empty adjacent edges measure whether today's stones
+  // will still have useful exits after the reserves are exhausted.
+  if (placing) {
+    return (
+      (ownTotal - enemyTotal) * 500 +
+      (countAdjacentFreedom(position, perspective) -
+        countAdjacentFreedom(position, enemy)) *
+        100 +
+      (countMills(position, perspective) - countMills(position, enemy)) * 80
+    );
+  }
+
   const ownPhase = getPhase(position, perspective);
   const enemyPhase = getPhase(position, enemy);
-  const placing = position.selfToPlace > 0 || position.opponentToPlace > 0;
   const ownMillActions = countMillActions(position, perspective);
   const enemyMillActions = countMillActions(position, enemy);
-  const materialWeight = placing ? 132 : 168;
-  let score = (ownTotal - enemyTotal) * materialWeight;
+  let score = (ownTotal - enemyTotal) * 168;
 
   const ownMillWeight =
-    ownPhase === "placing" ? 18 : ownPhase === "flying" ? 16 : 38;
+    ownPhase === "flying" ? 16 : 38;
   const enemyMillWeight =
-    enemyPhase === "placing" ? 18 : enemyPhase === "flying" ? 16 : 38;
+    enemyPhase === "flying" ? 16 : 38;
   score +=
     countMills(position, perspective) * ownMillWeight -
     countMills(position, enemy) * enemyMillWeight;
   score +=
     (Math.min(ownMillActions.actions, 4) -
       Math.min(enemyMillActions.actions, 4)) *
-    (placing ? 34 : 28);
+    28;
   score +=
     (Math.max(0, ownMillActions.targets - 1) -
       Math.max(0, enemyMillActions.targets - 1)) *
-    (placing ? 64 : 48);
+    48;
 
-  // A threat that can be executed immediately is worth more than the same
-  // shape one tempo later. This is especially important when defending as the
-  // second player during placement.
+  // A threat executable on this turn is worth more than the same shape one
+  // tempo later.
   score +=
     position.turn === perspective
       ? Math.min(ownMillActions.actions, 3) * 12
       : -Math.min(enemyMillActions.actions, 3) * 12;
 
-  if (placing) {
-    const ownOpenMills =
-      ownPhase === "placing" ? countOpenMills(position.board, perspective) : 0;
-    const enemyOpenMills =
-      enemyPhase === "placing" ? countOpenMills(position.board, enemy) : 0;
-    const ownForks =
-      ownPhase === "placing" ? countForks(position.board, perspective) : 0;
-    const enemyForks =
-      enemyPhase === "placing" ? countForks(position.board, enemy) : 0;
-    score += (ownOpenMills - enemyOpenMills) * 10;
-    score += (ownForks - enemyForks) * 16;
-    score +=
-      (countConnectionValue(position.board, perspective) -
-        countConnectionValue(position.board, enemy)) *
-      3;
-  } else {
-    score +=
-      (normalizedMobility(position, perspective) -
-        normalizedMobility(position, enemy)) *
-      4;
-    score +=
-      (countBlockedPieces(position, enemy) -
-        countBlockedPieces(position, perspective)) *
-      11;
-  }
+  score +=
+    (normalizedMobility(position, perspective) -
+      normalizedMobility(position, enemy)) *
+    4;
+  score +=
+    (countBlockedPieces(position, enemy) -
+      countBlockedPieces(position, perspective)) *
+    11;
   return score;
 }
 
@@ -670,47 +671,6 @@ function baseActionFormsMill(
   );
 }
 
-function countConnectionValue(
-  board: readonly MorrisCell[],
-  player: Player,
-): number {
-  let value = 0;
-  for (let point = 0; point < MORRIS_BOARD_SIZE; point += 1) {
-    if (board[point] === player) value += ADJACENCY[point].length - 2;
-  }
-  return value;
-}
-
-function countOpenMills(board: readonly MorrisCell[], player: Player): number {
-  let count = 0;
-  for (const mill of MILLS) {
-    let own = 0;
-    let empty = 0;
-    for (const point of mill) {
-      if (board[point] === player) own += 1;
-      else if (board[point] === EMPTY) empty += 1;
-    }
-    if (own === 2 && empty === 1) count += 1;
-  }
-  return count;
-}
-
-function countForks(board: readonly MorrisCell[], player: Player): number {
-  let count = 0;
-  for (let point = 0; point < MORRIS_BOARD_SIZE; point += 1) {
-    if (board[point] !== EMPTY) continue;
-    let threats = 0;
-    for (const millIndex of MILLS_BY_POINT[point]) {
-      const mill = MILLS[millIndex];
-      if (mill.filter((index) => board[index] === player).length === 2) {
-        threats += 1;
-      }
-    }
-    if (threats > 1) count += threats - 1;
-  }
-  return count;
-}
-
 function normalizedMobility(position: MorrisPosition, player: Player): number {
   const pieces = countPieces(position, player);
   const enemyPieces = countPieces(position, otherPlayer(player));
@@ -724,6 +684,17 @@ function normalizedMobility(position: MorrisPosition, player: Player): number {
     count += ADJACENCY[point].filter((to) => position.board[to] === EMPTY).length;
   }
   return Math.min(24, count);
+}
+
+function countAdjacentFreedom(position: MorrisPosition, player: Player): number {
+  let count = 0;
+  for (let point = 0; point < MORRIS_BOARD_SIZE; point += 1) {
+    if (position.board[point] !== player) continue;
+    count += ADJACENCY[point].filter(
+      (destination) => position.board[destination] === EMPTY,
+    ).length;
+  }
+  return count;
 }
 
 function countBlockedPieces(position: MorrisPosition, player: Player): number {

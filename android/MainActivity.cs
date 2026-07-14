@@ -134,6 +134,7 @@ internal sealed class LocalAssetClient(Android.Content.Res.AssetManager assets) 
         ".json" or ".webmanifest" => "application/manifest+json",
         ".svg" => "image/svg+xml",
         ".png" => "image/png",
+        ".wasm" => "application/wasm",
         ".txt" => "text/plain",
         _ => "application/octet-stream",
     };

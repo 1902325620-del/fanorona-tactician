@@ -1,0 +1,21 @@
+[package]
+name = "morris-engine"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Independent high-performance Nine Men's Morris engine"
+
+[lib]
+crate-type = ["rlib"]
+
+[[bin]]
+name = "morris-engine"
+path = "src/main.rs"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+panic = "abort"
+
+[features]
+default = []

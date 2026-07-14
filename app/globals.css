@@ -1203,6 +1203,28 @@ select:focus-visible,
   list-style: none;
 }
 
+.history-heading-actions {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.history-copy-button {
+  width: 32px;
+  height: 32px;
+}
+
+.history-copy-status {
+  margin: 10px 0 0;
+  color: var(--teal);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.history-copy-status.error {
+  color: var(--red);
+}
+
 .history-empty {
   padding: 13px 0 2px;
   color: var(--muted);

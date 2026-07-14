@@ -43,6 +43,7 @@ test("mobile PWA has an installable offline shell", async () => {
   assert.match(script, /classList\.contains\("native-shell"\)/);
   assert.match(script, /first-turn-button/);
   assert.match(script, /gameover-overlay/);
+  assert.match(script, /application\/wasm|WebAssembly\.instantiate/);
 
   for (const icon of manifest.icons) {
     await access(resolve(mobileDir, icon.src.replace(/^\.\//, "")));
@@ -62,6 +63,7 @@ test("Android shell applies system bar and display cutout insets", async () => {
   assert.match(activity, /SetPadding\(safeInsets\.Left, safeInsets\.Top, safeInsets\.Right, safeInsets\.Bottom\)/);
   assert.doesNotMatch(activity, /return WindowInsets\.Consumed/);
   assert.match(activity, /index\.html\?native=android/);
+  assert.match(activity, /"\.wasm" => "application\/wasm"/);
   assert.match(android15Style, /windowLightStatusBar">true/);
   assert.match(android15Style, /statusBarColor">@android:color\/transparent/);
 });

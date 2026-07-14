@@ -1,7 +1,8 @@
 "use client";
 
-import { BrainCircuit, Check, Crown, RotateCcw, X } from "lucide-react";
+import { BrainCircuit, Check, Copy, Crown, RotateCcw, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import packageMetadata from "../../package.json";
 import {
   ADJACENCY,
   EMPTY,
@@ -29,17 +30,24 @@ import { GameOverNotice } from "./GameOverNotice";
 type UiPhase = "opponent" | "thinking" | "recommendation" | "edit" | "gameover";
 type Brush = MorrisCell;
 
-interface HistoryEntry {
+export interface MorrisHistoryEntry {
   before: MorrisPosition;
   move: MorrisMove;
   side: Player;
+  /** Present when this was an AI-recommended move confirmed in the real game. */
+  search: MorrisSearchState | null;
 }
 
-interface SearchState {
+export interface MorrisSearchState {
   topMoves: readonly SearchLine[];
   depth: number;
   nodes: number;
   timeMs: number;
+  score: number;
+  engine: "wasm" | "typescript" | "unknown";
+  placementTargetDepth: number | null;
+  placementComplete: boolean | null;
+  timedOut: boolean;
 }
 
 interface WorkerMessage {
@@ -49,6 +57,11 @@ interface WorkerMessage {
   depth?: number;
   nodes?: number;
   timeMs?: number;
+  score?: number;
+  engine?: "wasm" | "typescript";
+  placementTargetDepth?: number;
+  placementComplete?: boolean;
+  timedOut?: boolean;
   message?: string;
 }
 
@@ -63,6 +76,135 @@ const STRENGTHS = {
   strong: { labelKey: "common.strong" as const, timeMs: 8_000, maxDepth: 32 },
   revenge: { labelKey: "common.revenge" as const, timeMs: 20_000, maxDepth: 32 },
 };
+
+export type MorrisStrength = keyof typeof STRENGTHS;
+const SHOW_MORRIS_DEBUG_RECORD = packageMetadata.version.includes("-");
+
+interface MorrisDebugRecordInput {
+  version: string;
+  firstTurn: Player;
+  strength: MorrisStrength;
+  position: MorrisPosition;
+  history: readonly MorrisHistoryEntry[];
+  lastSearch: MorrisSearchState | null;
+}
+
+function debugSide(player: Player) {
+  return player === SELF ? "self" : "opponent";
+}
+
+function debugMove(move: MorrisMove) {
+  return {
+    side: debugSide(move.player),
+    kind: move.kind,
+    from: move.from === null ? null : indexToAlgebraic(move.from),
+    to: indexToAlgebraic(move.to),
+    remove: move.remove === null ? null : indexToAlgebraic(move.remove),
+    formsMill: move.formsMill,
+    notation: move.notation,
+  };
+}
+
+function debugSearch(search: MorrisSearchState) {
+  return {
+    engine: search.engine,
+    depth: search.depth,
+    score: search.score,
+    nodes: search.nodes,
+    timeMs: Math.round(search.timeMs),
+    placementTargetDepth: search.placementTargetDepth,
+    placementComplete: search.placementComplete,
+    timedOut: search.timedOut,
+    candidates: search.topMoves.map((line, index) => ({
+      rank: index + 1,
+      score: line.score,
+      move: debugMove(line.move),
+      pv: line.pv.map(debugMove),
+    })),
+  };
+}
+
+/** Stable, machine-readable record that can be pasted directly into a bug report. */
+export function buildMorrisDebugRecord({
+  version,
+  firstTurn,
+  strength,
+  position,
+  history,
+  lastSearch,
+}: MorrisDebugRecordInput) {
+  const preset = STRENGTHS[strength];
+  const board = Object.fromEntries(
+    MORRIS_POINTS.map((point) => [
+      point.label,
+      position.board[point.index] === SELF
+        ? "self"
+        : position.board[point.index] === OPPONENT
+          ? "opponent"
+          : "empty",
+    ]),
+  );
+
+  return JSON.stringify({
+    schema: "board-tactician/morris-debug-record/v1",
+    appVersion: version,
+    game: "nine-mens-morris",
+    firstPlayer: debugSide(firstTurn),
+    strength: {
+      id: strength,
+      timeMs: preset.timeMs,
+      maxDepth: preset.maxDepth,
+    },
+    moves: history.map((entry, index) => ({
+      turn: index + 1,
+      ...debugMove(entry.move),
+      side: debugSide(entry.side),
+      search: entry.search === null ? null : debugSearch(entry.search),
+    })),
+    currentPosition: {
+      turn: debugSide(position.turn),
+      selfToPlace: position.selfToPlace,
+      opponentToPlace: position.opponentToPlace,
+      ply: position.ply ?? history.length,
+      board,
+    },
+    lastSearch: lastSearch === null ? null : debugSearch(lastSearch),
+  }, null, 2);
+}
+
+export async function copyMorrisDebugRecord(
+  record: string,
+  clipboard: Pick<Clipboard, "writeText"> | undefined =
+    typeof navigator === "undefined" ? undefined : navigator.clipboard,
+  fallback: ((text: string) => boolean) | undefined = legacyCopyText,
+) {
+  if (clipboard) {
+    try {
+      await clipboard.writeText(record);
+      return true;
+    } catch {
+      // Android WebView can expose Clipboard API but reject file-origin writes.
+    }
+  }
+  return fallback?.(record) ?? false;
+}
+
+function legacyCopyText(text: string) {
+  if (typeof document === "undefined" || !document.body || !document.execCommand) return false;
+  const input = document.createElement("textarea");
+  input.value = text;
+  input.readOnly = true;
+  input.style.position = "fixed";
+  input.style.inset = "0 auto auto -10000px";
+  document.body.appendChild(input);
+  input.select();
+  input.setSelectionRange(0, input.value.length);
+  try {
+    return document.execCommand("copy");
+  } finally {
+    input.remove();
+  }
+}
 
 const MORRIS_EDGES = ADJACENCY.flatMap((targets, from) =>
   targets.filter((to) => from < to).map((to) => ({ from, to })),
@@ -231,12 +373,14 @@ export function MorrisAssistant({
   const [position, setPosition] = useState<MorrisPosition>(() => createInitialPosition(OPPONENT));
   const [firstTurn, setFirstTurn] = useState<Player>(OPPONENT);
   const [phase, setPhase] = useState<UiPhase>("opponent");
-  const [history, setHistory] = useState<HistoryEntry[]>([]);
+  const [history, setHistory] = useState<MorrisHistoryEntry[]>([]);
   const [selectedFrom, setSelectedFrom] = useState<number | null>(null);
   const [pendingRemovalMoves, setPendingRemovalMoves] = useState<readonly MorrisMove[] | null>(null);
-  const [strength, setStrength] = useState<keyof typeof STRENGTHS>("quick");
+  const [strength, setStrength] = useState<MorrisStrength>("quick");
   const [searchProgress, setSearchProgress] = useState({ depth: 0, nodes: 0, timeMs: 0 });
-  const [searchResult, setSearchResult] = useState<SearchState | null>(null);
+  const [searchResult, setSearchResult] = useState<MorrisSearchState | null>(null);
+  const [lastSearchResult, setLastSearchResult] = useState<MorrisSearchState | null>(null);
+  const [copyStatus, setCopyStatus] = useState<"idle" | "success" | "failure">("idle");
   const [recommendationIndex, setRecommendationIndex] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [workerEpoch, setWorkerEpoch] = useState(0);
@@ -296,7 +440,12 @@ export function MorrisAssistant({
   const applyRecordedMove = useCallback((move: MorrisMove) => {
     const side = position.turn;
     const next = applyMove(position, move);
-    setHistory((entries) => [...entries, { before: position, move, side }]);
+    setHistory((entries) => [...entries, {
+      before: position,
+      move,
+      side,
+      search: side === SELF ? searchResult : null,
+    }]);
     setPosition(next);
     resetInput();
     setSearchResult(null);
@@ -304,7 +453,7 @@ export function MorrisAssistant({
     setError(null);
     const nextStatus = getGameStatus(next);
     setPhase(nextStatus.state === "won" ? "gameover" : next.turn === SELF ? "thinking" : "opponent");
-  }, [position, resetInput]);
+  }, [position, resetInput, searchResult]);
 
   const handleBoardPoint = useCallback((index: number) => {
     if (phase === "edit") {
@@ -346,6 +495,8 @@ export function MorrisAssistant({
     resetInput();
     setSearchProgress({ depth: 0, nodes: 0, timeMs: 0 });
     setSearchResult(null);
+    setLastSearchResult(null);
+    setCopyStatus("idle");
     setError(null);
     setPhase(turn === SELF ? "thinking" : "opponent");
   }, [firstTurn, resetInput, restartWorker]);
@@ -361,6 +512,7 @@ export function MorrisAssistant({
     setHistory((entries) => entries.slice(0, -1));
     setPosition(previous.before);
     setSearchResult(null);
+    setLastSearchResult(null);
     setError(null);
     setPhase(previous.before.turn === SELF ? "thinking" : "opponent");
   }, [history, pendingRemovalMoves, resetInput, restartWorker, selectedFrom]);
@@ -399,6 +551,8 @@ export function MorrisAssistant({
     setHistory([]);
     setError(null);
     setSearchResult(null);
+    setLastSearchResult(null);
+    setCopyStatus("idle");
     const nextStatus = getGameStatus(next);
     setPhase(nextStatus.state === "won" ? "gameover" : editTurn === SELF ? "thinking" : "opponent");
   }, [editBoard, editOpponentToPlace, editSelfToPlace, editTurn, locale]);
@@ -433,12 +587,19 @@ export function MorrisAssistant({
       }
       if (message.type !== "result") return;
       const topMoves = message.topMoves ?? [];
-      setSearchResult({
+      const result = {
         topMoves,
         depth: message.depth ?? 0,
         nodes: message.nodes ?? 0,
         timeMs: message.timeMs ?? 0,
-      });
+        score: message.score ?? topMoves[0]?.score ?? 0,
+        engine: message.engine ?? "unknown",
+        placementTargetDepth: message.placementTargetDepth ?? null,
+        placementComplete: message.placementComplete ?? null,
+        timedOut: message.timedOut ?? false,
+      } satisfies MorrisSearchState;
+      setSearchResult(result);
+      setLastSearchResult(result);
       setRecommendationIndex(0);
       setPhase(topMoves.length > 0 ? "recommendation" : "gameover");
     };
@@ -465,6 +626,7 @@ export function MorrisAssistant({
     const id = searchIdRef.current + 1;
     searchIdRef.current = id;
     const preset = STRENGTHS[strength];
+    const placement = position.selfToPlace > 0 || position.opponentToPlace > 0;
     setPhase("thinking");
     setSearchResult(null);
     setSearchProgress({ depth: 0, nodes: 0, timeMs: 0 });
@@ -476,13 +638,34 @@ export function MorrisAssistant({
       options: {
         timeMs: preset.timeMs,
         maxDepth: preset.maxDepth,
-        topN: 3,
+        // Placement has a much wider tree. Spend the budget on the principal
+        // line there; movement can still expose alternatives to the player.
+        topN: placement ? 1 : 3,
         history: history.map((entry) => entry.before),
         drawScore: -1,
       },
     });
     return () => worker.postMessage({ type: "cancel", id });
   }, [active, history, locale, phase, position, strength]);
+
+  useEffect(() => {
+    if (copyStatus === "idle") return;
+    const timer = window.setTimeout(() => setCopyStatus("idle"), 3_000);
+    return () => window.clearTimeout(timer);
+  }, [copyStatus]);
+
+  const copyGameRecord = useCallback(async () => {
+    const record = buildMorrisDebugRecord({
+      version: packageMetadata.version,
+      firstTurn,
+      strength,
+      position,
+      history,
+      lastSearch: lastSearchResult,
+    });
+    const copied = await copyMorrisDebugRecord(record);
+    setCopyStatus(copied ? "success" : "failure");
+  }, [firstTurn, history, lastSearchResult, position, strength]);
 
   const turnText = pendingRemovalMoves
     ? t(locale, "morris.chooseRemovalShort")
@@ -703,9 +886,30 @@ export function MorrisAssistant({
           </section>
 
           <section className="panel-section">
-            <div className="panel-heading-row"><div><p className="eyebrow">{t(locale, "common.recentTurns")}</p><h2 className="panel-title">{t(locale, "common.history")}</h2></div><span className="count-pill">{history.length}</span></div>
+            <div className="panel-heading-row">
+              <div><p className="eyebrow">{t(locale, "common.recentTurns")}</p><h2 className="panel-title">{t(locale, "common.history")}</h2></div>
+              <div className="history-heading-actions">
+                <span className="count-pill">{history.length}</span>
+                {SHOW_MORRIS_DEBUG_RECORD && (
+                  <button
+                    type="button"
+                    className="icon-button history-copy-button"
+                    aria-label={t(locale, "morris.copyRecord")}
+                    title={t(locale, "morris.copyRecord")}
+                    onClick={copyGameRecord}
+                  >
+                    <Copy size={16} />
+                  </button>
+                )}
+              </div>
+            </div>
             {latestHistory.length === 0 ? <div className="history-empty">{t(locale, "common.noHistory")}</div> : (
               <ol className="history-list">{latestHistory.map((entry, index) => <li className="history-row" key={`${history.length - index}-${entry.move.id}`}><span className="history-index">{history.length - index}.</span><span className={`history-side ${entry.side === OPPONENT ? "opponent" : "self"}`}>{entry.side === OPPONENT ? t(locale, "common.opponent") : t(locale, "common.self")}</span><span className="history-notation">{entry.move.notation}</span><span className="history-captures">{entry.move.remove !== null ? t(locale, "common.captured", { count: 1 }) : "—"}</span></li>)}</ol>
+            )}
+            {SHOW_MORRIS_DEBUG_RECORD && copyStatus !== "idle" && (
+              <p className={`history-copy-status${copyStatus === "failure" ? " error" : ""}`} role="status">
+                {t(locale, copyStatus === "success" ? "morris.copyRecordSuccess" : "morris.copyRecordFailure")}
+              </p>
             )}
           </section>
         </aside>

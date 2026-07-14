@@ -6,8 +6,8 @@
     <Nullable>enable</Nullable>
     <ApplicationId>com.fanorona.tactician</ApplicationId>
     <ApplicationTitle>棋局参谋</ApplicationTitle>
-    <ApplicationVersion>10</ApplicationVersion>
-    <ApplicationDisplayVersion>2.0.1-rc.1</ApplicationDisplayVersion>
+    <ApplicationVersion>14</ApplicationVersion>
+    <ApplicationDisplayVersion>2.1.0-alpha.3</ApplicationDisplayVersion>
     <SupportedOSPlatformVersion>24.0</SupportedOSPlatformVersion>
     <AndroidPackageFormat>apk</AndroidPackageFormat>
     <AndroidUseAapt2>true</AndroidUseAapt2>
