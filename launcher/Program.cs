@@ -201,7 +201,7 @@ internal sealed class LoopbackServer : IAsyncDisposable
                 $"Cache-Control: {cache}\r\n" +
                 "X-Content-Type-Options: nosniff\r\n" +
                 "Referrer-Policy: no-referrer\r\n" +
-                "Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; worker-src 'self' blob:; connect-src 'self'; manifest-src 'self'\r\n" +
+                "Content-Security-Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; worker-src 'self' blob:; connect-src 'self'; manifest-src 'self'\r\n" +
                 "Connection: close\r\n\r\n";
             await stream.WriteAsync(Encoding.ASCII.GetBytes(headers), token);
             if (parts[0] == "GET")
@@ -274,6 +274,7 @@ internal sealed class LoopbackServer : IAsyncDisposable
         ".json" or ".webmanifest" => "application/manifest+json; charset=utf-8",
         ".svg" => "image/svg+xml",
         ".png" => "image/png",
+        ".wasm" => "application/wasm",
         ".txt" => "text/plain; charset=utf-8",
         _ => "application/octet-stream",
     };

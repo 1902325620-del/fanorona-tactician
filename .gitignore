@@ -49,3 +49,6 @@ next-env.d.ts
 /launcher/web/
 /launcher/bin/
 /launcher/obj/
+
+# generated Rust/Wasm build products
+/morris-engine/target/

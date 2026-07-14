@@ -1,12 +1,13 @@
 /// <reference lib="webworker" />
 
+import initializeMorrisWasm from "../wasm/generated/morris_engine.wasm?init";
 import {
-  searchBestMoves,
   type MorrisPosition,
   type SearchOptions,
   type SearchProgress,
   type SearchResult,
 } from "./morris";
+import { MorrisSearchRouter, MorrisWasmEngine } from "./morris-wasm";
 
 export type MorrisSearchRequestId = string | number;
 
@@ -54,6 +55,12 @@ export type MorrisWorkerResponse =
 const workerScope: DedicatedWorkerGlobalScope = self as DedicatedWorkerGlobalScope;
 const cancelled = new Set<MorrisSearchRequestId>();
 let activeId: MorrisSearchRequestId | null = null;
+const engineRouter = new MorrisSearchRouter(async () => {
+  const instance = await initializeMorrisWasm({
+    env: { now_ms: () => performance.now() },
+  });
+  return new MorrisWasmEngine(instance.exports);
+});
 
 workerScope.onmessage = (event: MessageEvent<MorrisWorkerRequest>) => {
   const request = event.data;
@@ -66,16 +73,22 @@ workerScope.onmessage = (event: MessageEvent<MorrisWorkerRequest>) => {
     return;
   }
 
+  void handleSearch(request);
+};
+
+async function handleSearch(request: MorrisSearchRequest): Promise<void> {
   const { id, position } = request;
+  if (activeId !== null && activeId !== id) cancelled.add(activeId);
   cancelled.delete(id);
   activeId = id;
   const shouldStop = () => cancelled.has(id) || activeId !== id;
 
   try {
-    const result = searchBestMoves(
+    const result = await engineRouter.search(
       position,
       { ...request.options, shouldStop },
       (progress) => {
+        if (shouldStop()) return;
         const message: MorrisProgressMessage = {
           type: "progress",
           id,
@@ -85,7 +98,7 @@ workerScope.onmessage = (event: MessageEvent<MorrisWorkerRequest>) => {
       },
     );
 
-    if (cancelled.has(id)) {
+    if (shouldStop()) {
       const message: MorrisCancelledMessage = { type: "cancelled", id };
       workerScope.postMessage(message);
     } else {
@@ -93,16 +106,21 @@ workerScope.onmessage = (event: MessageEvent<MorrisWorkerRequest>) => {
       workerScope.postMessage(message);
     }
   } catch (error) {
-    const message: MorrisErrorMessage = {
-      type: "error",
-      id,
-      message: error instanceof Error ? error.message : String(error),
-    };
-    workerScope.postMessage(message);
+    if (shouldStop()) {
+      const message: MorrisCancelledMessage = { type: "cancelled", id };
+      workerScope.postMessage(message);
+    } else {
+      const message: MorrisErrorMessage = {
+        type: "error",
+        id,
+        message: error instanceof Error ? error.message : String(error),
+      };
+      workerScope.postMessage(message);
+    }
   } finally {
     cancelled.delete(id);
     if (activeId === id) activeId = null;
   }
-};
+}
 
 export {};

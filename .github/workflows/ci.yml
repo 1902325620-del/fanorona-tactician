@@ -20,7 +20,12 @@ jobs:
         with:
           node-version: 22.13.0
           cache: pnpm
+      - name: Install Rust 1.97.0 with Wasm target
+        run: rustup toolchain install 1.97.0 --profile minimal --target wasm32-unknown-unknown
       - run: pnpm install --frozen-lockfile
+      - name: Test native Morris engine
+        run: cargo test --manifest-path morris-engine/Cargo.toml
+      - run: pnpm run check:wasm
       - run: pnpm run lint
       - run: pnpm exec tsc --noEmit
       - run: pnpm test

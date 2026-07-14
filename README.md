@@ -27,17 +27,23 @@
 
 - **迂棋 9×5**：必吃、撞吃、拖吃、连续吃子与可选停止。
 - **英式西洋跳棋 8×8**：有吃必吃、连续跳吃、单格王棋与升王。游戏使用的不是 10×10 国际跳棋规则。
-- **莫里斯九子棋**：摆子、成磨取子、相邻走子、三子飞行与终局判定。
+- **莫里斯九子棋**：摆子、成磨取子、相邻走子、三子飞行与终局判定；推荐棋路由独立 Rust/WebAssembly 引擎计算，异常时回退到 TypeScript 引擎。
 
 ### 主要功能
 
-- 三种棋均使用本地迭代加深 Alpha-Beta 搜索，并提供前三候选棋路。
+- 迂棋与西洋跳棋使用各自的本地搜索；九子棋使用独立的迭代加深 PVS/Alpha-Beta 核心。三种棋均可提供最多三个候选棋路。
 - 简体中文与英文界面，顶部可快速切换棋类。
 - 默认快速搜索，也可选择强力或复仇强度。
 - 支持整回合撤销、任意局面编辑、先手切换和棋子颜色自动互换。
 - 西洋跳棋可快速取消或切换所选棋子，并明确提示强制吃子与连续跳吃限制。
 - Android 适配状态栏、摄像头开孔和底部导航安全区，并提供底部快捷确认与终局提示。
 - Windows 便携版只在 `127.0.0.1` 启动本机页面，不对外提供服务。
+
+### 九子棋引擎说明
+
+`2.1.0-alpha.3` 的只读行为审计确认，《黑旗》的九子棋对手并没有可检测的大型开局棋谱，而是使用低深度 Negamax/Alpha-Beta、置换表，以及总子数、空邻接边和已成磨三项评分。项目只依据可观察行为重新实现通用算法，不复制、注入、打包或依赖 Ubisoft 的代码与数据。
+
+当前独立 Rust/WebAssembly 引擎在落子期采用同量纲的稳定评分基线，并额外使用 16 种棋盘对称置换表、战术走法排序、强制封堵与有限战术延伸。尚未搜索到全部落子时只保留完整双方回合的偶数层结果，避免短时限下的奇偶层摇摆；同时只计算一个首选落子，把预算集中到主变化。在时间允许时，搜索目标仍会覆盖所有剩余落子并继续验证 4 ply 移动阶段。开局共有 18 次落子，常用的 2 秒预算无法穷举全部变化，因此这是针对已确认缺陷的增强测试版，不是完美解，也不保证必胜。WebAssembly 无法加载或校验失败时，程序会回退到采用相同落子基线的 TypeScript 引擎；两种路径都完全离线，不联网且不消耗 Token。
 
 ### 开发说明
 
@@ -52,6 +58,14 @@
 ```bash
 pnpm install
 pnpm dev
+```
+
+若要从源码重新编译九子棋 WebAssembly，还需要通过 rustup 安装项目锁定的 Rust 1.97.0，并添加 `wasm32-unknown-unknown` 目标：
+
+```bash
+rustup target add wasm32-unknown-unknown
+pnpm run build:wasm
+pnpm run check:wasm
 ```
 
 验证与构建：
@@ -99,17 +113,23 @@ The builds are not signed with a commercial code-signing certificate, so Windows
 
 - **Fanorona 9x5**: mandatory captures, approach and withdrawal captures, capture chains, and optional stopping.
 - **English Draughts 8x8**: mandatory captures, multiple jumps, single-step kings, and promotion. This is not 10x10 International Draughts.
-- **Nine Men's Morris**: placement, mills and removals, adjacent movement, flying with three pieces, and terminal-state detection.
+- **Nine Men's Morris**: placement, mills and removals, adjacent movement, flying with three pieces, and terminal-state detection; recommendations use an independent Rust/WebAssembly engine with a TypeScript fallback.
 
 ### Highlights
 
-- Local iterative-deepening Alpha-Beta search with three ranked candidates for every game.
+- Separate local search engines for Fanorona and draughts, plus an independent iterative-deepening PVS/Alpha-Beta core for Morris. Each game can return up to three ranked candidates.
 - Complete Simplified Chinese and English interface with a top game switcher.
 - Quick search by default, with Strong and Revenge presets available.
 - Full-turn undo, position editing, first-player switching, and automatic piece-color swapping.
 - Fast draughts piece selection with clear feedback for mandatory captures and unfinished multiple jumps.
 - Android safe-area handling for status bars, display cutouts, and navigation bars, plus quick confirmation and game-over prompts.
 - The Windows build only serves the embedded app on `127.0.0.1` and never exposes it to the network.
+
+### About the Morris engine
+
+The read-only behavioral audit behind `2.1.0-alpha.3` found no detectable large opening book in the Black Flag Morris opponent. It uses a shallow Negamax/Alpha-Beta search, a transposition table, and a compact score based on total material, empty adjacent edges, and completed mills. This project independently reimplements only observable, general algorithmic behavior; it does not copy, inject, bundle, or depend on Ubisoft code or data.
+
+The independent Rust/WebAssembly engine now uses a placement baseline on the same scale, plus 16-way board-symmetry caching, tactical move ordering, forced blocks, and bounded tactical extensions. Until search reaches the end of placement, it retains balanced even-ply results and calculates only one principal placement candidate, avoiding horizon oscillation and MultiPV budget waste. When time permits, the target still includes every remaining placement followed by four movement plies. The opening has 18 placements, so the normal two-second budget cannot exhaust every continuation. This is an enhanced test build aimed at a confirmed evaluation defect, not a perfect solution or a guaranteed win. If WebAssembly fails to load or validate, the app falls back to a TypeScript engine using the same placement baseline. Both paths are fully offline, make no network requests, and consume no tokens.
 
 ### Development
 
@@ -124,6 +144,14 @@ Node.js 22.13+ and pnpm 11 are required:
 ```bash
 pnpm install
 pnpm dev
+```
+
+Rebuilding the Morris WebAssembly module also requires rustup, the Rust 1.97.0 toolchain pinned by this repository, and the `wasm32-unknown-unknown` target:
+
+```bash
+rustup target add wasm32-unknown-unknown
+pnpm run build:wasm
+pnpm run check:wasm
 ```
 
 Tests and builds:
