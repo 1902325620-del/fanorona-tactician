@@ -15,7 +15,7 @@
     "build:launcher": "pnpm run build:mobile && node launcher/prepare.mjs && dotnet publish launcher/FanoronaLauncher.csproj -c Release -r win-x64 --self-contained true -o work/launcher-publish && node launcher/finalize.mjs",
     "build:apk": "pnpm run build:mobile && node android/prepare.mjs && node android/build.mjs && node android/finalize.mjs",
     "start": "vinext start",
-    "test": "pnpm run build && node --test tests/rendered-html.test.mjs tests/morris-wasm-artifact.test.mjs && tsx --test tests/fanorona.test.ts tests/draughts.test.ts tests/morris.test.ts tests/i18n.test.ts tests/presentation.test.ts",
+    "test": "pnpm run build && node --test tests/rendered-html.test.mjs tests/morris-wasm-artifact.test.mjs && tsx --test tests/fanorona.test.ts tests/draughts.test.ts tests/morris.test.ts tests/i18n.test.ts tests/presentation.test.ts tests/pwa-install.test.ts",
     "test:mobile": "pnpm run build:mobile && node --test tests/mobile-package.test.mjs",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next --ignore-pattern work --ignore-pattern outputs"
   },

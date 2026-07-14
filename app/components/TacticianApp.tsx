@@ -2,8 +2,14 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { type GameId, type Locale } from "../lib/i18n";
+import {
+  detectIosInstallGuide,
+  isPwaServingContext,
+  type IosInstallGuide,
+} from "../lib/pwaInstall";
 import { DraughtsAssistant } from "./DraughtsAssistant";
 import { FanoronaAssistant } from "./FanoronaAssistant";
+import { InstallGuideDialog } from "./InstallGuideDialog";
 import { MorrisAssistant } from "./MorrisAssistant";
 
 export interface WorkerFactories {
@@ -15,6 +21,7 @@ export interface WorkerFactories {
 interface TacticianAppProps {
   workers: WorkerFactories;
   nativeAndroid?: boolean;
+  iosInstallGuideEnabled?: boolean;
 }
 
 interface InstallPromptEvent extends Event {
@@ -30,11 +37,19 @@ function isLocale(value: string | null): value is Locale {
   return value === "zh" || value === "en";
 }
 
-export function TacticianApp({ workers, nativeAndroid = false }: TacticianAppProps) {
+export function TacticianApp({
+  workers,
+  nativeAndroid = false,
+  iosInstallGuideEnabled = false,
+}: TacticianAppProps) {
   const [game, setGame] = useState<GameId>("fanorona");
   const [locale, setLocale] = useState<Locale>("zh");
   const [visited, setVisited] = useState<Set<GameId>>(() => new Set(["fanorona"]));
   const [installPrompt, setInstallPrompt] = useState<InstallPromptEvent | null>(null);
+  const [iosInstallGuide, setIosInstallGuide] = useState<IosInstallGuide | null>(() =>
+    iosInstallGuideEnabled && !nativeAndroid ? detectIosInstallGuide() : null,
+  );
+  const [installGuideOpen, setInstallGuideOpen] = useState(false);
 
   const changeGame = useCallback((next: GameId) => {
     setVisited((current) => {
@@ -62,7 +77,7 @@ export function TacticianApp({ workers, nativeAndroid = false }: TacticianAppPro
 
     if (
       "serviceWorker" in navigator &&
-      (window.location.protocol === "https:" || window.location.hostname === "localhost")
+      isPwaServingContext(window.location.protocol, window.location.hostname)
     ) {
       navigator.serviceWorker.register("./sw.js").catch(() => undefined);
     }
@@ -79,7 +94,11 @@ export function TacticianApp({ workers, nativeAndroid = false }: TacticianAppPro
       event.preventDefault();
       setInstallPrompt(event as InstallPromptEvent);
     };
-    const clear = () => setInstallPrompt(null);
+    const clear = () => {
+      setInstallPrompt(null);
+      setIosInstallGuide(null);
+      setInstallGuideOpen(false);
+    };
     window.addEventListener("beforeinstallprompt", capture);
     window.addEventListener("appinstalled", clear);
     return () => {
@@ -89,16 +108,22 @@ export function TacticianApp({ workers, nativeAndroid = false }: TacticianAppPro
   }, []);
 
   const install = useCallback(async () => {
-    if (!installPrompt) return;
-    await installPrompt.prompt();
-    await installPrompt.userChoice;
-    setInstallPrompt(null);
-  }, [installPrompt]);
+    if (installPrompt) {
+      await installPrompt.prompt();
+      await installPrompt.userChoice;
+      setInstallPrompt(null);
+      return;
+    }
+    if (iosInstallGuide) setInstallGuideOpen(true);
+  }, [installPrompt, iosInstallGuide]);
+
+  const closeInstallGuide = useCallback(() => setInstallGuideOpen(false), []);
 
   const navigation = {
     game,
     locale,
-    installAvailable: installPrompt !== null,
+    installAvailable:
+      !nativeAndroid && (installPrompt !== null || iosInstallGuide !== null),
     nativeAndroid,
     onGameChange: changeGame,
     onInstall: install,
@@ -134,6 +159,12 @@ export function TacticianApp({ workers, nativeAndroid = false }: TacticianAppPro
           />
         </div>
       )}
+      <InstallGuideDialog
+        locale={locale}
+        mode={iosInstallGuide}
+        open={installGuideOpen}
+        onClose={closeInstallGuide}
+      />
     </>
   );
 }

@@ -10,18 +10,21 @@
 
 > 这个项目起源于拿骚酒馆里输掉的 4000 多金币：[阅读项目的诞生故事](./STORY.md)。
 
-### 直接下载：打包好的离线版本
+### 直接使用：Windows、Android 与 iPhone/iPad
 
-两个成品都已内置界面、棋规和搜索引擎。运行时不需要联网，不调用 OpenAI 或其他 AI 接口，也不消耗 Token。
+Windows 与 Android 成品都已内置界面、棋规和搜索引擎，运行时不需要联网。iPhone/iPad 可直接打开项目的 GitHub Pages Web App，首次加载并完成缓存后同样可离线使用。所有版本都不调用 OpenAI 或其他 AI 接口，也不消耗 Token。
 
 | 平台 | 下载 | 运行要求 |
 | --- | --- | --- |
 | Windows | [Windows x64 便携版 EXE](https://github.com/1902325620-del/fanorona-tactician/releases/latest/download/board-tactician-windows-portable.exe) | Windows 10/11 64 位；无需安装 Node.js 或 .NET |
 | Android | [Android APK](https://github.com/1902325620-del/fanorona-tactician/releases/latest/download/board-tactician-android.apk) | Android 7.0 以上 |
+| iPhone / iPad | [打开 GitHub Pages Web App](https://1902325620-del.github.io/fanorona-tactician/) | 使用 Safari；首次打开需要联网 |
 
 [查看最新 Release、更新说明与 SHA-256 校验值](https://github.com/1902325620-del/fanorona-tactician/releases/latest)
 
 项目暂未使用商业代码签名证书，因此 Windows SmartScreen 或 Android 可能显示来源提示。Android 更新包使用同一签名，可覆盖安装旧版本。
+
+在 iPhone/iPad 的 Safari 中打开 Web App，点击“分享”并选择“添加到主屏幕”，开启“作为网页 App 打开”后点击“添加”。主屏幕图标会像普通 App 一样独立启动；更新版本时联网重新打开一次即可。此方式无需 App Store、Apple 开发者账号或侧载 IPA，页面内也提供相同的中英双语安装引导。具体步骤可参考 [Apple 官方说明](https://support.apple.com/zh-cn/guide/iphone/iphea86e5236/ios)。
 
 ### 支持的棋类
 
@@ -37,6 +40,7 @@
 - 支持整回合撤销、任意局面编辑、先手切换和棋子颜色自动互换。
 - 西洋跳棋可快速取消或切换所选棋子，并明确提示强制吃子与连续跳吃限制。
 - Android 适配状态栏、摄像头开孔和底部导航安全区，并提供底部快捷确认与终局提示。
+- iPhone/iPad 提供可添加到主屏幕的 PWA、Safari 安装引导与离线缓存，并由 GitHub Pages 自动部署。
 - Windows 便携版只在 `127.0.0.1` 启动本机页面，不对外提供服务。
 
 ### 九子棋引擎说明
@@ -96,18 +100,21 @@ Enter the opponent's complete action and the built-in engine calculates recommen
 
 > The project began after losing more than 4,000 in-game coins at the Nassau tavern. The full origin story is currently available [in Chinese](./STORY.md).
 
-### Download the ready-to-use offline builds
+### Use it on Windows, Android, iPhone, and iPad
 
-Both packages include the complete interface, rules, and search engines. They do not require an internet connection at runtime, call OpenAI or any other AI API, or consume tokens.
+The Windows and Android packages include the complete interface, rules, and search engines and need no connection at runtime. On iPhone and iPad, open the GitHub Pages Web App; after the first load and cache completes, it also works offline. No version calls OpenAI or another AI API, and none consumes tokens.
 
 | Platform | Download | Requirements |
 | --- | --- | --- |
 | Windows | [Windows x64 portable EXE](https://github.com/1902325620-del/fanorona-tactician/releases/latest/download/board-tactician-windows-portable.exe) | 64-bit Windows 10/11; no Node.js or .NET installation required |
 | Android | [Android APK](https://github.com/1902325620-del/fanorona-tactician/releases/latest/download/board-tactician-android.apk) | Android 7.0 or later |
+| iPhone / iPad | [Open the GitHub Pages Web App](https://1902325620-del.github.io/fanorona-tactician/) | Safari; an internet connection is required for the first load |
 
 [Open the latest release for notes and SHA-256 checksums](https://github.com/1902325620-del/fanorona-tactician/releases/latest)
 
 The builds are not signed with a commercial code-signing certificate, so Windows SmartScreen or Android may display a source warning. Android updates use the same signing key and can be installed over earlier versions.
+
+In Safari on iPhone or iPad, open the Web App, tap Share, choose Add to Home Screen, turn on Open as Web App, and tap Add. Its Home Screen icon then launches like a regular app. Reconnect and open it once when you want to fetch an update. This route needs no App Store listing, Apple developer account, or sideloaded IPA, and the page includes the same installation guide in Chinese and English. See [Apple's official instructions](https://support.apple.com/en-au/guide/iphone/iphea86e5236/ios) for the system steps.
 
 ### Supported games
 
@@ -123,6 +130,7 @@ The builds are not signed with a commercial code-signing certificate, so Windows
 - Full-turn undo, position editing, first-player switching, and automatic piece-color swapping.
 - Fast draughts piece selection with clear feedback for mandatory captures and unfinished multiple jumps.
 - Android safe-area handling for status bars, display cutouts, and navigation bars, plus quick confirmation and game-over prompts.
+- An installable iPhone/iPad PWA with a Safari guide, offline caching, and automatic deployment through GitHub Pages.
 - The Windows build only serves the embedded app on `127.0.0.1` and never exposes it to the network.
 
 ### About the Morris engine
