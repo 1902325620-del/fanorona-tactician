@@ -7,22 +7,48 @@ const projectDir = resolve(import.meta.dirname, "..");
 const mobileDir = resolve(projectDir, "outputs", "fanorona-mobile-pwa");
 
 test("mobile PWA has an installable offline shell", async () => {
-  const [html, manifestText, serviceWorker] = await Promise.all([
+  const [html, manifestText, serviceWorker, instructions] = await Promise.all([
     readFile(resolve(mobileDir, "index.html"), "utf8"),
     readFile(resolve(mobileDir, "manifest.webmanifest"), "utf8"),
     readFile(resolve(mobileDir, "sw.js"), "utf8"),
+    readFile(resolve(mobileDir, "安装说明.txt"), "utf8"),
   ]);
   const manifest = JSON.parse(manifestText);
 
   assert.equal(manifest.name, "棋局参谋");
   assert.equal(manifest.display, "standalone");
+  assert.equal(manifest.id, "./");
   assert.equal(manifest.start_url, "./");
+  assert.equal(manifest.scope, "./");
   assert.match(html, /rel="manifest" href="\.\/manifest\.webmanifest"/);
+  assert.match(html, /rel="apple-touch-icon" href="\.\/icons\/apple-touch-icon\.png"/);
   assert.match(html, /viewport-fit=cover/);
   assert.match(html, /native-shell/);
   assert.match(serviceWorker, /PRECACHE\.push\("\.\/assets\/index-[^"]+\.js"/);
   assert.match(serviceWorker, /\.\/THIRD_PARTY_NOTICES\.txt/);
-  await access(resolve(mobileDir, "THIRD_PARTY_NOTICES.txt"));
+  assert.doesNotMatch(serviceWorker, /__MOBILE_PRECACHE__/);
+  assert.match(serviceWorker, /key\.startsWith\(CACHE_PREFIX\)/);
+  assert.match(serviceWorker, /key\.startsWith\(LEGACY_CACHE_PREFIX\)/);
+  assert.doesNotMatch(serviceWorker, /caches\.match\(/);
+  assert.match(serviceWorker, /if \(response\.ok\) \{\s+await cache\.put\(request, response\.clone\(\)\)/);
+  assert.match(serviceWorker, /if \(cached\) return cached/);
+  assert.doesNotMatch(serviceWorker, /keys\.filter\(\(key\) => key !== CACHE_NAME\)/);
+  assert.match(instructions, /iPhone \/ iPad/);
+  assert.match(instructions, /添加到主屏幕/);
+  await Promise.all([
+    access(resolve(mobileDir, ".nojekyll")),
+    access(resolve(mobileDir, "THIRD_PARTY_NOTICES.txt")),
+    access(resolve(mobileDir, "icons", "apple-touch-icon.png")),
+  ]);
+
+  const localReferences = [
+    ...html.matchAll(/(?:src|href)="([^"?#]+)(?:[?#][^"]*)?"/g),
+  ].map((match) => match[1]);
+  assert.ok(localReferences.length >= 5);
+  for (const reference of localReferences) {
+    assert.match(reference, /^\.\//, `expected a repository-relative URL: ${reference}`);
+    await access(resolve(mobileDir, reference.slice(2)));
+  }
 
   const assetPaths = [
     ...html.matchAll(/(?:src|href)="\.\/(assets\/[^"?#]+)"/g),
@@ -43,7 +69,13 @@ test("mobile PWA has an installable offline shell", async () => {
   assert.match(script, /classList\.contains\("native-shell"\)/);
   assert.match(script, /first-turn-button/);
   assert.match(script, /gameover-overlay/);
+  assert.match(script, /添加到主屏幕/);
+  assert.match(script, /MicroMessenger/);
   assert.match(script, /application\/wasm|WebAssembly\.instantiate/);
+
+  for (const assetPath of assetPaths) {
+    assert.match(serviceWorker, new RegExp(`\\.\\/${assetPath.replaceAll(".", "\\.")}`));
+  }
 
   for (const icon of manifest.icons) {
     await access(resolve(mobileDir, icon.src.replace(/^\.\//, "")));

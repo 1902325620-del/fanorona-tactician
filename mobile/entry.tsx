@@ -17,6 +17,7 @@ createRoot(root).render(
   <StrictMode>
     <TacticianApp
       nativeAndroid={nativeAndroid}
+      iosInstallGuideEnabled={!nativeAndroid}
       workers={{
         fanorona: () => new InlineFanoronaWorker(),
         draughts: () => new InlineDraughtsWorker(),

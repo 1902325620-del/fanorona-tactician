@@ -2,6 +2,16 @@
 
 本项目采用语义化版本号。日期使用 `YYYY-MM-DD` 格式。
 
+## [Unreleased]
+
+### iPhone / iPad Web App
+
+- 新增由 GitHub Pages 自动部署的 iPhone/iPad PWA，用户可在 Safari 中直接添加到主屏幕，无需 App Store、Apple 开发者账号或侧载 IPA。
+- 为 iOS Safari、微信内置浏览器和其他 iOS 浏览器提供中英双语安装引导；安装后从主屏幕独立启动，完成首次缓存后可离线使用全部棋规与本地 AI。
+- 保持 Android APK、Windows 便携版、桌面 Web 与单文件调试版的原有交互不变，iOS 安装能力只在正式移动 PWA 中启用。
+- 增加 iPhone/iPad、独立运行模式、HTTPS 安装环境及 GitHub Pages 仓库子路径的自动化回归测试。
+- Service Worker 只清理本项目命名空间内的旧缓存，不会影响同一 GitHub Pages 域名下的其他项目。
+
 ## [2.1.0] - 2026-07-13
 
 ### 正式发布

@@ -1,4 +1,6 @@
-const CACHE_NAME = "board-tactician-v5";
+const CACHE_PREFIX = "fanorona-tactician-";
+const LEGACY_CACHE_PREFIX = "board-tactician-";
+const CACHE_NAME = `${CACHE_PREFIX}v6`;
 const PRECACHE = [
   "./",
   "./manifest.webmanifest",
@@ -24,7 +26,15 @@ self.addEventListener("activate", (event) => {
     caches
       .keys()
       .then((keys) =>
-        Promise.all(keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key))),
+        Promise.all(
+          keys
+            .filter(
+              (key) =>
+                (key.startsWith(CACHE_PREFIX) && key !== CACHE_NAME) ||
+                key.startsWith(LEGACY_CACHE_PREFIX),
+            )
+            .map((key) => caches.delete(key)),
+        ),
       )
       .then(() => self.clients.claim()),
   );
@@ -40,28 +50,30 @@ self.addEventListener("fetch", (event) => {
   if (request.mode === "navigate") {
     event.respondWith(
       fetch(request)
-        .then((response) => {
-          const copy = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
-          return response;
+        .then(async (response) => {
+          const cache = await caches.open(CACHE_NAME);
+          if (response.ok) {
+            await cache.put(request, response.clone());
+            return response;
+          }
+          return (await cache.match(request)) ?? (await cache.match("./")) ?? response;
         })
-        .catch(async () => (await caches.match(request)) ?? caches.match("./")),
+        .catch(async () => {
+          const cache = await caches.open(CACHE_NAME);
+          return (await cache.match(request)) ?? cache.match("./");
+        }),
     );
     return;
   }
 
   event.respondWith(
-    caches.match(request).then((cached) => {
-      const network = fetch(request)
-        .then((response) => {
-          if (response.ok) {
-            const copy = response.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
-          }
-          return response;
-        })
-        .catch(() => cached);
-      return cached ?? network;
+    caches.open(CACHE_NAME).then(async (cache) => {
+      const cached = await cache.match(request);
+      if (cached) return cached;
+
+      const response = await fetch(request);
+      if (response.ok) await cache.put(request, response.clone());
+      return response;
     }),
   );
 });

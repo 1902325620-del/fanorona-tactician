@@ -16,6 +16,7 @@ await Promise.all([
   cp(resolve(publicDir, "favicon.svg"), resolve(buildDir, "favicon.svg")),
   cp(resolve(publicDir, "icons"), resolve(buildDir, "icons"), { recursive: true }),
   cp(resolve(projectDir, "THIRD_PARTY_NOTICES.md"), resolve(buildDir, "THIRD_PARTY_NOTICES.txt")),
+  writeFile(resolve(buildDir, ".nojekyll"), "", "utf8"),
 ]);
 
 const htmlPath = resolve(buildDir, "index.html");
@@ -36,11 +37,20 @@ await cp(buildDir, outputDir, { recursive: true });
 
 const instructions = `棋局参谋手机端（PWA）
 
-这个文件夹是可安装网页应用：
+这个文件夹是可安装网页应用，也可直接使用项目的 GitHub Pages 版本：
+https://1902325620-del.github.io/fanorona-tactician/
+
+安卓 Chrome：
 1. 将整个文件夹部署到任意支持 HTTPS 的静态网站。
 2. 用安卓 Chrome 打开网址。
 3. 点击页面上的安装按钮，或在浏览器菜单选择“安装应用”。
-4. 首次打开后可离线使用，不消耗 AI Token。
+
+iPhone / iPad：
+1. 用 Safari 打开网址。
+2. 点击“分享”，选择“添加到主屏幕”。
+3. 开启“作为网页 App 打开”，再点击“添加”。
+
+首次打开并完成缓存后可离线使用，不消耗 AI Token。
 
 若不想部署网站，请直接安装安卓 APK。浏览器的 file:// 模式会限制计算线程，不再作为正式交付方式。
 `;
