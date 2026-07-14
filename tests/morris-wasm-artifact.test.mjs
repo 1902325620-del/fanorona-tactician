@@ -1,27 +1,47 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
-import { performance } from "node:perf_hooks";
 import test from "node:test";
 
 const wasmUrl = new URL(
   "../app/wasm/generated/morris_engine.wasm",
   import.meta.url,
 );
+const manifestUrl = new URL(
+  "../app/wasm/generated/morris_engine.manifest.json",
+  import.meta.url,
+);
 
 test("committed Morris Wasm artifact exposes a working ABI", async () => {
-  const bytes = await readFile(wasmUrl);
+  const [bytes, manifestContents] = await Promise.all([
+    readFile(wasmUrl),
+    readFile(manifestUrl, "utf8"),
+  ]);
+  const manifest = JSON.parse(manifestContents);
+  assert.equal(manifest.manifestVersion, 1);
+  assert.equal(manifest.target, "wasm32-unknown-unknown");
+  assert.equal(manifest.wasmSize, bytes.length);
+  assert.equal(
+    manifest.wasmSha256,
+    createHash("sha256").update(bytes).digest("hex"),
+  );
+  assert.match(manifest.normalizedWasmSha256, /^[0-9a-f]{64}$/);
+  assert.match(manifest.sourceSha256, /^[0-9a-f]{64}$/);
+
   const wasmModule = await WebAssembly.compile(bytes);
 
   assert.deepEqual(WebAssembly.Module.imports(wasmModule), [
     { module: "env", name: "now_ms", kind: "function" },
   ]);
 
+  let now = 0;
   const instance = await WebAssembly.instantiate(wasmModule, {
-    env: { now_ms: () => performance.now() },
+    env: { now_ms: () => (now += 1) },
   });
   const api = instance.exports;
 
-  assert.equal(api.morris_engine_abi_version(), 1);
+  assert.equal(api.morris_engine_abi_version(), manifest.abiVersion);
+  assert.equal(manifest.abiVersion, 1);
 
   const handle = api.morris_engine_create(1);
   assert.notEqual(handle, 0);

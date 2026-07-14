@@ -1,0 +1,9 @@
+{
+  "manifestVersion": 1,
+  "target": "wasm32-unknown-unknown",
+  "sourceSha256": "0c4ad4f1e248a96b0226e4bc976225d1fb5606f2d72af6cd9021ab9d31219532",
+  "wasmSha256": "57dce5d57709bd945ef3469ba2905eaea0c43ce18524d246375b14459c855802",
+  "normalizedWasmSha256": "ada37358a435ee9615ff18557e53aa7d186ec9091ad5e573479cec8b341710e8",
+  "wasmSize": 76489,
+  "abiVersion": 1
+}
